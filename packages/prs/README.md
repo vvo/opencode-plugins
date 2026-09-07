@@ -7,7 +7,7 @@
   <img src="../../assets/prs-hover-light-v2.gif" alt="Pull request titles scrolling on hover in the OpenCode sidebar" width="640">
 </picture>
 
-The sidebar section is collapsible. Each pull request uses a full-width linked title with its muted number and colored status below. Hover a clipped title to scroll through its full text once. Select `⧉` to copy a Slack-ready PR summary and confirm it with a toast.
+The sidebar section is collapsible. Each pull request uses a full-width linked title with its muted number and colored status below. Merged pull requests use subdued colors so open work stays prominent. Hover a clipped title to scroll through its full text once. Select `⧉` to copy a Slack-ready PR summary and confirm it with a toast.
 
 ## Install
 
