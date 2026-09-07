@@ -122,7 +122,6 @@ function PullRequestRow(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
-  merged: string | RGBA
   copy: (plain: string, html: string) => Promise<boolean>
 }) {
   const [hovered, setHovered] = createSignal(false)
@@ -156,8 +155,10 @@ function PullRequestRow(props: {
     clearInterval(interval)
   })
 
+  const merged = () => props.pr.state === "MERGED"
+  const titleColor = () => (merged() ? props.subdued : props.link)
   const statusColor = () => {
-    if (props.pr.state === "MERGED") return props.merged
+    if (merged()) return props.subdued
     return props.pr.isDraft ? props.draft : props.open
   }
 
@@ -171,7 +172,7 @@ function PullRequestRow(props: {
       <box flexDirection="row" minWidth={0}>
         <text fg={props.subdued} flexShrink={0}>• </text>
         <box flexGrow={1} minWidth={0} overflow="hidden" onSizeChange={function () { setWidth(this.width) }}>
-          <text fg={props.link} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
+          <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
       </box>
       <box flexDirection="row" marginLeft={2}>
@@ -258,7 +259,6 @@ function PullRequests(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
-  merged: string | RGBA
   copy: (plain: string, html: string) => Promise<boolean>
 }) {
   const cache = getSessionCache(props.sessionID)
@@ -329,7 +329,6 @@ function PullRequests(props: {
             link={props.link}
             draft={props.draft}
             open={props.open}
-            merged={props.merged}
             copy={props.copy}
           />
         )}</For>
@@ -352,7 +351,6 @@ function setup(context: Context) {
         link={context.theme.markdown.link}
         draft={context.theme.text.feedback.warning.default}
         open={context.theme.text.feedback.info.default}
-        merged={context.theme.text.feedback.success.default}
         copy={async (plain, html) => {
           const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text))
           context.ui.toast.show({
@@ -381,7 +379,6 @@ const tui: TuiPlugin = async (api) => {
           link={api.theme.current.markdownLink}
           draft={api.theme.current.warning}
           open={api.theme.current.info}
-          merged={api.theme.current.success}
           copy={async (plain, html) => {
             const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text))
             api.ui.toast({
