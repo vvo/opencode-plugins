@@ -23,17 +23,6 @@ const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
 const MARQUEE_STEP_MS = 120
-const RICH_CLIPBOARD_SCRIPT = `ObjC.import("AppKit")
-function run(argv) {
-  const decode = (value) => $.NSString.alloc.initWithDataEncoding(
-    $.NSData.alloc.initWithBase64EncodedStringOptions(value, 0),
-    $.NSUTF8StringEncoding,
-  )
-  const pasteboard = $.NSPasteboard.generalPasteboard
-  pasteboard.clearContents
-  pasteboard.setStringForType(decode(argv[0]), $.NSPasteboardTypeString)
-  pasteboard.setStringForType(decode(argv[1]), $.NSPasteboardTypeHTML)
-}`
 type Context = Plugin.Context
 type Message = { type?: string; content?: unknown[] }
 type ShellToolPart = {
@@ -61,13 +50,15 @@ const sessionCache = new Map<string, SessionCache>()
 async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
+    const htmlHex = Buffer.from(html).toString("hex")
+    const script = `on run argv
+set plainText to item 1 of argv
+set the clipboard to {«class HTML»:«data HTML${htmlHex}», string:plainText}
+end run`
     await execFileAsync("/usr/bin/osascript", [
-      "-l",
-      "JavaScript",
       "-e",
-      RICH_CLIPBOARD_SCRIPT,
-      Buffer.from(plain).toString("base64"),
-      Buffer.from(html).toString("base64"),
+      script,
+      plain,
     ])
     return true
   } catch {
