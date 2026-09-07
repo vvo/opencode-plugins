@@ -245,6 +245,8 @@ function PullRequests(props: {
   sessionID: string
   refs: Accessor<PullRequestRef[]>
   history: () => Promise<PullRequestRef[]>
+  sync?: () => Promise<void>
+  focused?: Accessor<boolean>
   foreground: string | RGBA
   subdued: string | RGBA
   link: string | RGBA
@@ -266,24 +268,35 @@ function PullRequests(props: {
     setUnavailable(cache.unavailable)
   }
   const refresh = async (force = false) => {
-    const refs = uniquePullRequests([...cache.history, ...props.refs()])
-    const refsKey = pullRequestRefsKey(refs)
-    if (!force && refsKey === cache.refsKey) return
-    if (!cache.refreshPromise) {
-      cache.refreshPromise = Promise.all(refs.map(fetchPullRequest)).then((results) => {
-        const failed = refs.length > 0 && results.every((result) => result === undefined)
-        if (!failed || cache.prs.length === 0) {
-          const next = mergePullRequests(refs, results, cache.prs)
-          if (next.length !== cache.prs.length || next.some((pr, index) => pr !== cache.prs[index])) cache.prs = next
-        }
-        cache.unavailable = failed && cache.prs.length === 0
-        cache.refsKey = refsKey
-      }).finally(() => {
-        cache.refreshPromise = undefined
-      })
+    while (mounted) {
+      const refs = uniquePullRequests([...cache.history, ...props.refs()])
+      const refsKey = pullRequestRefsKey(refs)
+      if (!force && refsKey === cache.refsKey) return
+      force = false
+      if (!cache.refreshPromise) {
+        cache.refreshPromise = Promise.all(refs.map(fetchPullRequest)).then((results) => {
+          const failed = refs.length > 0 && results.every((result) => result === undefined)
+          if (!failed || cache.prs.length === 0) {
+            const next = mergePullRequests(refs, results, cache.prs)
+            if (next.length !== cache.prs.length || next.some((pr, index) => pr !== cache.prs[index])) cache.prs = next
+          }
+          cache.unavailable = failed && cache.prs.length === 0
+          cache.refsKey = refsKey
+        }).finally(() => {
+          cache.refreshPromise = undefined
+        })
+      }
+      await cache.refreshPromise
+      showCache()
     }
-    await cache.refreshPromise
-    showCache()
+  }
+  const revalidate = async () => {
+    await props.sync?.().catch(() => undefined)
+    const historyPromise = cache.historyPromise ??= props.history().catch(() => cache.history).finally(() => {
+      cache.historyPromise = undefined
+    })
+    cache.history = await historyPromise
+    await refresh(true)
   }
   createEffect(() => {
     const refsKey = pullRequestRefsKey(props.refs())
@@ -292,16 +305,19 @@ function PullRequests(props: {
     void refresh()
   })
   onMount(() => {
-    cache.historyPromise ??= props.history()
-    void cache.historyPromise.then((value) => {
-      cache.history = value
-      void refresh(true)
-    })
+    void revalidate()
     const interval = setInterval(() => void refresh(true), REFRESH_MS)
     onCleanup(() => {
       mounted = false
       clearInterval(interval)
     })
+  })
+  let focused = props.focused?.() ?? true
+  createEffect(() => {
+    const next = props.focused?.() ?? true
+    if (next === focused) return
+    focused = next
+    if (focused) void revalidate()
   })
   return (
     <box flexDirection="column">
@@ -337,6 +353,10 @@ function setup(context: Context) {
         sessionID={sessionID}
         refs={() => refsFromV2(context.data.session.message.list(sessionID) as readonly Message[])}
         history={() => refsFromV2History(context, sessionID)}
+        sync={() => context.data.session.message.sync(sessionID)}
+        focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
+          tab.sessionID === context.data.session.root(sessionID) && tab.active
+        ))}
         foreground={context.theme.text.default}
         subdued={context.theme.text.subdued}
         link={context.theme.markdown.link}
