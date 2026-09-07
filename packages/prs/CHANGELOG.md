@@ -1,5 +1,11 @@
 # opencode-prs
 
+## 0.1.5
+
+### Patch Changes
+
+- a759043: Copy PR summaries as rich links that paste correctly in Slack.
+
 ## 0.1.4
 
 ### Patch Changes
