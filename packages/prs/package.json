@@ -1,6 +1,6 @@
 {
   "name": "opencode-prs",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "OpenCode TUI plugin that shows GitHub pull requests referenced by the current session",
   "type": "module",
   "exports": { ".": "./dist/index.js", "./tui": "./dist/tui.js" },

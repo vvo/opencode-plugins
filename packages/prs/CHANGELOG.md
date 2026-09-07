@@ -1,5 +1,11 @@
 # opencode-prs
 
+## 0.1.6
+
+### Patch Changes
+
+- 76fb27e: Write Slack-compatible HTML to the macOS clipboard so copied PR titles paste as rich links.
+
 ## 0.1.5
 
 ### Patch Changes
