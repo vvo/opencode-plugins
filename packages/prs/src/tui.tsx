@@ -364,7 +364,9 @@ function setup(context: Context) {
         refs={() => refsFromV2(context.data.session.message.list(sessionID) as readonly Message[])}
         history={() => refsFromV2History(context, sessionID)}
         sync={() => context.data.session.message.sync(sessionID)}
-        focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => tab.sessionID === sessionID && tab.active)}
+        focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
+          tab.sessionID === context.data.session.root(sessionID) && tab.active
+        ))}
         foreground={context.theme.text.default}
         subdued={context.theme.text.subdued}
         link={context.theme.markdown.link}
