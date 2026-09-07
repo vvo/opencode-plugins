@@ -1,5 +1,12 @@
 # opencode-prs
 
+## 0.1.7
+
+### Patch Changes
+
+- 4a68d78: Revalidate session history and pull requests when their tab regains focus.
+- 55f2444: Use subdued colors for merged pull requests.
+
 ## 0.1.6
 
 ### Patch Changes
