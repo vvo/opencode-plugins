@@ -14,6 +14,10 @@ export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "
   return pr.isDraft ? "draft" : "open"
 }
 
+export function pullRequestLabel(pr: PullRequestRef): string {
+  return `${pr.owner}/${pr.repo}#${pr.number}`
+}
+
 export function sortPullRequests(prs: PullRequest[]): PullRequest[] {
   const rank = { open: 0, draft: 1, merged: 2, closed: 3 }
   return [...prs].sort((left, right) => {

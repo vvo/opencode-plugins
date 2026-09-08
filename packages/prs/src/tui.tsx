@@ -8,6 +8,7 @@ import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
   marquee,
+  pullRequestLabel,
   pullRequestStatus,
   slackPullRequest,
   slackPullRequestHtml,
@@ -108,7 +109,6 @@ function mergePullRequests(
 
 function PullRequestRow(props: {
   pr: PullRequest
-  numberWidth: number
   subdued: string | RGBA
   link: string | RGBA
   draft: string | RGBA
@@ -168,7 +168,7 @@ function PullRequestRow(props: {
       </box>
       <box flexDirection="row" marginLeft={2}>
         <text fg={props.subdued}>
-          #{String(props.pr.number).padStart(props.numberWidth)}
+          {pullRequestLabel(props.pr)}
           <span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span>
         </text>
         <text
@@ -259,7 +259,6 @@ function PullRequests(props: {
   const [prs, setPrs] = createSignal<PullRequest[]>(cache.prs)
   const [unavailable, setUnavailable] = createSignal(cache.unavailable)
   const visiblePrs = () => sortPullRequests(prs()).slice(0, MAX_VISIBLE_PRS)
-  const numberWidth = () => Math.max(1, ...visiblePrs().map((pr) => String(pr.number).length))
   let mounted = true
   let observedRefsKey = pullRequestRefsKey(props.refs())
   const showCache = () => {
@@ -331,7 +330,6 @@ function PullRequests(props: {
         <For each={visiblePrs()}>{(pr) => (
           <PullRequestRow
             pr={pr}
-            numberWidth={numberWidth()}
             subdued={props.subdued}
             link={props.link}
             draft={props.draft}
