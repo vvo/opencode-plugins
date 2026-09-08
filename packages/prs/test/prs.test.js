@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -20,6 +20,13 @@ test("labels pull request states", () => {
   assert.equal(pullRequestStatus({ state: "OPEN", isDraft: true }), "draft")
   assert.equal(pullRequestStatus({ state: "OPEN", isDraft: false }), "open")
   assert.equal(pullRequestStatus({ state: "MERGED", isDraft: false }), "merged")
+})
+
+test("labels pull requests with their repository", () => {
+  assert.equal(pullRequestLabel({
+    owner: "vercel", repo: "front", number: 90443,
+    url: "https://github.com/vercel/front/pull/90443",
+  }), "vercel/front#90443")
 })
 
 test("only extracts pull requests created by gh", () => {

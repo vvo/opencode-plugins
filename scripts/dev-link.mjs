@@ -7,16 +7,19 @@ const configDir = resolve(homedir(), ".config/opencode")
 const cliPath = resolve(configDir, "cli.json")
 const statePath = resolve(configDir, "opencode-plugins-dev.json")
 const packages = [
-  { name: "opencode-cost-details", target: resolve(root, "packages/cost-details/dist") },
-  { name: "opencode-prs", target: resolve(root, "packages/prs/dist") },
-]
+  { name: "opencode-cost-details", directory: "packages/cost-details/dist" },
+  { name: "opencode-prs", directory: "packages/prs/dist" },
+].map((plugin) => ({ ...plugin, target: resolve(root, plugin.directory) }))
+
+function isPackagePlugin(plugin, { name, directory, target }) {
+  if (typeof plugin !== "string") return false
+  return plugin === name || plugin.startsWith(`${name}@`) || plugin === target || plugin.endsWith(`/${directory}`)
+}
 
 async function link() {
   const cli = JSON.parse(await readFile(cliPath, "utf8"))
   const configured = cli.plugins ?? []
-  const removed = configured.filter((plugin) =>
-    typeof plugin === "string" && packages.some(({ name }) => plugin === name || plugin.startsWith(`${name}@`)),
-  )
+  const removed = configured.filter((plugin) => packages.some((item) => isPackagePlugin(plugin, item)))
   const paths = packages.map((plugin) => plugin.target)
   cli.plugins = [...configured.filter((plugin) => !removed.includes(plugin)), ...paths]
   await writeFile(statePath, `${JSON.stringify({ removed, paths }, null, 2)}\n`)
