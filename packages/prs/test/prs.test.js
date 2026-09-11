@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -20,6 +20,15 @@ test("labels pull request states", () => {
   assert.equal(pullRequestStatus({ state: "OPEN", isDraft: true }), "draft")
   assert.equal(pullRequestStatus({ state: "OPEN", isDraft: false }), "open")
   assert.equal(pullRequestStatus({ state: "MERGED", isDraft: false }), "merged")
+})
+
+test("shows review indicators for open pull requests", () => {
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), "✓")
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED" }), "⏳")
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "" }), "⏳")
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), undefined)
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: true, reviewDecision: "" }), undefined)
+  assert.equal(pullRequestReviewIndicator({ state: "MERGED", isDraft: false, reviewDecision: "APPROVED" }), undefined)
 })
 
 test("labels pull requests with their repository", () => {
@@ -44,7 +53,7 @@ test("scrolls long titles", () => {
 test("sorts open, draft, and merged PRs by recency", () => {
   const pr = (number, state, isDraft, createdAt) => ({
     owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
-    title: String(number), state, isDraft, createdAt, additions: 4, deletions: 2,
+    title: String(number), state, isDraft, reviewDecision: null, createdAt, additions: 4, deletions: 2,
   })
   const sorted = sortPullRequests([
     pr(1, "MERGED", false, "2026-09-04T10:00:00Z"),
@@ -59,7 +68,7 @@ test("formats a PR for Slack", () => {
   const pr = {
     owner: "vvo", repo: "opencode-plugins", number: 22,
     url: "https://github.com/vvo/opencode-plugins/pull/22",
-    title: "lower the cursor", state: "MERGED", isDraft: false,
+    title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED",
     createdAt: "2026-09-04T10:00:00Z", additions: 4, deletions: 4,
   }
   assert.equal(slackPullRequest(pr), ":pr: vvo/opencode-plugins <https://github.com/vvo/opencode-plugins/pull/22|*lower the cursor*> +4 -4")

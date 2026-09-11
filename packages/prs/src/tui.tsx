@@ -9,6 +9,7 @@ import {
   extractCreatedPullRequests,
   marquee,
   pullRequestLabel,
+  pullRequestReviewIndicator,
   pullRequestStatus,
   slackPullRequest,
   slackPullRequestHtml,
@@ -82,6 +83,7 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.title === right.title &&
     left.state === right.state &&
     left.isDraft === right.isDraft &&
+    left.reviewDecision === right.reviewDecision &&
     left.createdAt === right.createdAt &&
     left.additions === right.additions &&
     left.deletions === right.deletions
@@ -152,7 +154,6 @@ function PullRequestRow(props: {
     if (merged()) return props.subdued
     return props.pr.isDraft ? props.draft : props.open
   }
-
   return (
     <box
       flexDirection="column"
@@ -175,6 +176,9 @@ function PullRequestRow(props: {
           fg={props.subdued}
           onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
         > · ⧉</text>
+        <Show when={pullRequestReviewIndicator(props.pr)} keyed>
+          {(indicator) => <text fg={indicator === "✓" ? props.open : props.subdued}> · {indicator}</text>}
+        </Show>
       </box>
     </box>
   )
@@ -182,8 +186,8 @@ function PullRequestRow(props: {
 
 async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,createdAt,additions,deletions"])
-    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "createdAt" | "additions" | "deletions">
+    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,additions,deletions"])
+    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "additions" | "deletions">
     return { ...ref, ...data }
   } catch {
     return undefined
