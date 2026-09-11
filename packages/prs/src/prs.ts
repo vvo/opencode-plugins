@@ -3,9 +3,17 @@ export type PullRequest = PullRequestRef & {
   title: string
   state: "OPEN" | "CLOSED" | "MERGED"
   isDraft: boolean
+  reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | "" | null
   createdAt: string
   additions: number
   deletions: number
+}
+
+export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): "✓" | "⏳" | undefined {
+  if (pr.state !== "OPEN" || pr.isDraft) return undefined
+  if (pr.reviewDecision === "APPROVED") return "✓"
+  if (pr.reviewDecision === "CHANGES_REQUESTED") return undefined
+  return "⏳"
 }
 
 export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "draft" | "open" | "merged" | "closed" {
