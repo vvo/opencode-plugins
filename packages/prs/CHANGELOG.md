@@ -1,5 +1,15 @@
 # opencode-prs
 
+## 0.2.0
+
+### Minor Changes
+
+- 99a558a: Mark open pull requests as approved or waiting for review in the sidebar.
+
+### Patch Changes
+
+- ea6be40: Show each pull request as `owner/repository#number` in the sidebar.
+
 ## 0.1.7
 
 ### Patch Changes
