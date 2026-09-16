@@ -12,7 +12,7 @@ export type PullRequest = PullRequestRef & {
 
 export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): "✓" | "⏳" | undefined {
   if (pr.state !== "OPEN" || pr.isDraft) return undefined
-  if (pr.reviewDecision === "APPROVED") return "✓"
+  if (pr.reviewDecision === "APPROVED") return undefined
   if (pr.reviewDecision === "CHANGES_REQUESTED") return undefined
   return "⏳"
 }

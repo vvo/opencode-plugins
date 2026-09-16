@@ -23,7 +23,7 @@ test("labels pull request states", () => {
 })
 
 test("shows review indicators for open pull requests", () => {
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), "✓")
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), undefined)
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED" }), "⏳")
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "" }), "⏳")
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), undefined)
