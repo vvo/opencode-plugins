@@ -8,12 +8,13 @@ import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
   marquee,
-  pullRequestHasComments,
   pullRequestLabel,
   pullRequestReviewIndicator,
   pullRequestStatus,
   slackPullRequest,
   slackPullRequestHtml,
+  slackPullRequests,
+  slackPullRequestsHtml,
   sortPullRequests,
   uniquePullRequests,
   type PullRequest,
@@ -86,9 +87,9 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.isDraft === right.isDraft &&
     left.reviewDecision === right.reviewDecision &&
     left.createdAt === right.createdAt &&
+    left.mergedAt === right.mergedAt &&
     left.additions === right.additions &&
-    left.deletions === right.deletions &&
-    left.commentCount === right.commentCount
+    left.deletions === right.deletions
   )
 }
 
@@ -151,7 +152,6 @@ function PullRequestRow(props: {
   })
 
   const merged = () => props.pr.state === "MERGED"
-  const approved = () => props.pr.state === "OPEN" && props.pr.reviewDecision === "APPROVED"
   const titleColor = () => merged() ? props.subdued : props.link
   const statusColor = () => {
     if (merged()) return props.subdued
@@ -165,31 +165,20 @@ function PullRequestRow(props: {
       onMouseOut={() => setHovered(false)}
     >
       <box flexDirection="row" minWidth={0}>
-        <text fg={props.subdued} flexShrink={0}><Show when={approved()} fallback="• "><b>• </b></Show></text>
+        <text fg={props.subdued} flexShrink={0}>• </text>
         <box flexGrow={1} minWidth={0} overflow="hidden" onSizeChange={function () { setWidth(this.width) }}>
-          <text fg={titleColor()} wrapMode="none">
-            <Show when={approved()} fallback={<a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a>}>
-              <b><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></b>
-            </Show>
-          </text>
+          <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
       </box>
       <box flexDirection="row" marginLeft={2}>
         <text fg={props.subdued}>
-          <Show
-            when={approved()}
-            fallback={<>{pullRequestLabel(props.pr)}<span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span></>}
-          >
-            <b>{pullRequestLabel(props.pr)}<span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span></b>
-          </Show>
+          {pullRequestLabel(props.pr)}
+          <span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span>
         </text>
         <text
           fg={props.subdued}
           onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
-        ><Show when={approved()} fallback=" · ⧉"><b> · ⧉</b></Show></text>
-        <Show when={pullRequestHasComments(props.pr)}>
-          <text fg={props.subdued}><Show when={approved()} fallback=" · 🗨︎"><b> · 🗨︎</b></Show></text>
-        </Show>
+        > · ⧉</text>
         <Show when={pullRequestReviewIndicator(props.pr)} keyed>
           {(indicator) => <text fg={props.subdued}> · {indicator}</text>}
         </Show>
@@ -200,10 +189,9 @@ function PullRequestRow(props: {
 
 async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,additions,deletions,comments"])
-    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "additions" | "deletions"> & { comments: unknown[] }
-    const { comments, ...pr } = data
-    return { ...ref, ...pr, commentCount: comments.length }
+    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions"])
+    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions">
+    return { ...ref, ...data }
   } catch {
     return undefined
   }
@@ -344,6 +332,16 @@ function PullRequests(props: {
       <box flexDirection="row" gap={1} onMouseUp={() => setOpen((value) => !value)}>
         <text fg={props.foreground}>{open() ? "▼" : "▶"}</text>
         <text fg={props.foreground}><b>PRs ({prs().length})</b></text>
+        <Show when={prs().length > 0}>
+          <text
+            fg={props.subdued}
+            onMouseUp={(event) => {
+              event.stopPropagation()
+              const sorted = sortPullRequests(prs())
+              void props.copy(slackPullRequests(sorted), slackPullRequestsHtml(sorted))
+            }}
+          >⧉</text>
+        </Show>
       </box>
       <Show when={open()}>
         <Show when={unavailable()}><text fg={props.subdued}>GitHub unavailable</text></Show>

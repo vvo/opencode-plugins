@@ -2,4 +2,4 @@
 "opencode-prs": minor
 ---
 
-Bold approved pull request rows and show a speech bubble when a pull request has comments or requested changes.
+Show one review status icon, sort merged pull requests by merge time, and copy the full list from the header.

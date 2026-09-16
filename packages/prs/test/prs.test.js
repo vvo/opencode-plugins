@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestHasComments, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -23,18 +23,12 @@ test("labels pull request states", () => {
 })
 
 test("shows review indicators for open pull requests", () => {
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), undefined)
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), "✓")
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED" }), "⏳")
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "" }), "⏳")
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), undefined)
+  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), "!")
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: true, reviewDecision: "" }), undefined)
   assert.equal(pullRequestReviewIndicator({ state: "MERGED", isDraft: false, reviewDecision: "APPROVED" }), undefined)
-})
-
-test("shows comments for conversations and requested changes", () => {
-  assert.equal(pullRequestHasComments({ reviewDecision: "APPROVED", commentCount: 1 }), true)
-  assert.equal(pullRequestHasComments({ reviewDecision: "CHANGES_REQUESTED", commentCount: 0 }), true)
-  assert.equal(pullRequestHasComments({ reviewDecision: "REVIEW_REQUIRED", commentCount: 0 }), false)
 })
 
 test("labels pull requests with their repository", () => {
@@ -57,17 +51,18 @@ test("scrolls long titles", () => {
 })
 
 test("sorts open, draft, and merged PRs by recency", () => {
-  const pr = (number, state, isDraft, createdAt) => ({
+  const pr = (number, state, isDraft, createdAt, mergedAt = null) => ({
     owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
-    title: String(number), state, isDraft, reviewDecision: null, createdAt, additions: 4, deletions: 2,
+    title: String(number), state, isDraft, reviewDecision: null, createdAt, mergedAt, additions: 4, deletions: 2,
   })
   const sorted = sortPullRequests([
-    pr(1, "MERGED", false, "2026-09-04T10:00:00Z"),
+    pr(1, "MERGED", false, "2026-09-04T10:00:00Z", "2026-09-05T10:00:00Z"),
     pr(2, "OPEN", true, "2026-09-04T12:00:00Z"),
     pr(3, "OPEN", false, "2026-09-04T09:00:00Z"),
     pr(4, "OPEN", false, "2026-09-04T11:00:00Z"),
+    pr(5, "MERGED", false, "2026-09-04T13:00:00Z", "2026-09-04T14:00:00Z"),
   ])
-  assert.deepEqual(sorted.map(({ number }) => number), [4, 3, 2, 1])
+  assert.deepEqual(sorted.map(({ number }) => number), [4, 3, 2, 1, 5])
 })
 
 test("formats a PR for Slack", () => {
@@ -75,11 +70,13 @@ test("formats a PR for Slack", () => {
     owner: "vvo", repo: "opencode-plugins", number: 22,
     url: "https://github.com/vvo/opencode-plugins/pull/22",
     title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED",
-    createdAt: "2026-09-04T10:00:00Z", additions: 4, deletions: 4,
+    createdAt: "2026-09-04T10:00:00Z", mergedAt: "2026-09-04T11:00:00Z", additions: 4, deletions: 4,
   }
   assert.equal(slackPullRequest(pr), ":pr: *vvo/opencode-plugins* · <https://github.com/vvo/opencode-plugins/pull/22|lower the cursor (#22)> +4/-4")
   assert.equal(
     slackPullRequestHtml(pr),
     `<meta charset='utf-8'><html><head></head><body>:pr: <b>vvo/opencode-plugins</b> · <a href="https://github.com/vvo/opencode-plugins/pull/22">lower the cursor (#22)</a> +4/-4</body></html>`,
   )
+  assert.equal(slackPullRequests([pr, pr]), `${slackPullRequest(pr)}\n${slackPullRequest(pr)}`)
+  assert.match(slackPullRequestsHtml([pr, pr]), /<br>/)
 })
