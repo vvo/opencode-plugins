@@ -71,9 +71,9 @@ test("formats a PR for Slack", () => {
     title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED",
     createdAt: "2026-09-04T10:00:00Z", additions: 4, deletions: 4,
   }
-  assert.equal(slackPullRequest(pr), ":pr: vvo/opencode-plugins <https://github.com/vvo/opencode-plugins/pull/22|*lower the cursor*> +4 -4")
+  assert.equal(slackPullRequest(pr), ":pr: *vvo/opencode-plugins* · <https://github.com/vvo/opencode-plugins/pull/22|lower the cursor (#22)> +4/-4")
   assert.equal(
     slackPullRequestHtml(pr),
-    `<meta charset='utf-8'><html><head></head><body>:pr: vvo/opencode-plugins <a href="https://github.com/vvo/opencode-plugins/pull/22"><b>lower the cursor</b></a> +4 -4</body></html>`,
+    `<meta charset='utf-8'><html><head></head><body>:pr: <b>vvo/opencode-plugins</b> · <a href="https://github.com/vvo/opencode-plugins/pull/22">lower the cursor (#22)</a> +4/-4</body></html>`,
   )
 })
