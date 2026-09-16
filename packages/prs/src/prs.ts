@@ -44,7 +44,8 @@ export function slackPullRequest(pr: PullRequest): string {
 }
 
 export function slackPullRequests(prs: PullRequest[]): string {
-  return prs.map(slackPullRequest).join("\n")
+  if (prs.length === 1) return slackPullRequest(prs[0])
+  return prs.map((pr) => `- ${slackPullRequest(pr)}`).join("\n")
 }
 
 function escapeHtml(value: string): string {
@@ -59,8 +60,23 @@ export function slackPullRequestHtml(pr: PullRequest): string {
 }
 
 export function slackPullRequestsHtml(prs: PullRequest[]): string {
+  if (prs.length === 1) return slackPullRequestHtml(prs[0])
   const items = prs.map((pr) => slackPullRequestHtml(pr).replace(/^.*<body>|<\/body><\/html>$/g, ""))
-  return `<meta charset='utf-8'><html><head></head><body>${items.join("<br>")}</body></html>`
+  return `<meta charset='utf-8'><html><head></head><body><ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul></body></html>`
+}
+
+export function slackPullRequestsTexty(prs: PullRequest[]): string | undefined {
+  if (prs.length < 2) return undefined
+  const ops = prs.flatMap((pr) => [
+    { insert: { slackemoji: { text: ":pr:" } } },
+    { insert: " " },
+    { attributes: { bold: true }, insert: `${pr.owner}/${pr.repo}` },
+    { insert: " · " },
+    { attributes: { link: pr.url }, insert: `${pr.title} (#${pr.number})` },
+    { insert: ` +${pr.additions}/-${pr.deletions}` },
+    { attributes: { list: "bullet" }, insert: "\n" },
+  ])
+  return JSON.stringify({ ops })
 }
 
 const GITHUB_PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g

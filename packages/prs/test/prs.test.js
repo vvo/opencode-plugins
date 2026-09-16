@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -78,6 +78,9 @@ test("formats a PR for Slack", () => {
     slackPullRequestHtml(pr),
     `<meta charset='utf-8'><html><head></head><body>:pr: <b>vvo/opencode-plugins</b> · <a href="https://github.com/vvo/opencode-plugins/pull/22">lower the cursor (#22)</a> +4/-4</body></html>`,
   )
-  assert.equal(slackPullRequests([pr, pr]), `${slackPullRequest(pr)}\n${slackPullRequest(pr)}`)
-  assert.match(slackPullRequestsHtml([pr, pr]), /<br>/)
+  assert.equal(slackPullRequests([pr]), slackPullRequest(pr))
+  assert.equal(slackPullRequests([pr, pr]), `- ${slackPullRequest(pr)}\n- ${slackPullRequest(pr)}`)
+  assert.match(slackPullRequestsHtml([pr, pr]), /<ul><li>/)
+  assert.equal(slackPullRequestsTexty([pr]), undefined)
+  assert.deepEqual(JSON.parse(slackPullRequestsTexty([pr, pr])).ops.at(-1), { attributes: { list: "bullet" }, insert: "\n" })
 })

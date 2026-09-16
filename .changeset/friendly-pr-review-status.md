@@ -2,4 +2,4 @@
 "opencode-prs": minor
 ---
 
-Show one review status icon based on unresolved review threads, sort merged pull requests by merge time, and copy the full list from the header.
+Show unresolved review status, sort merged pull requests by merge time, and copy the full list with native Slack and portable bullet formats.

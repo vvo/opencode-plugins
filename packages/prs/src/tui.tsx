@@ -15,6 +15,7 @@ import {
   slackPullRequestHtml,
   slackPullRequests,
   slackPullRequestsHtml,
+  slackPullRequestsTexty,
   sortPullRequests,
   uniquePullRequests,
   type PullRequest,
@@ -51,18 +52,25 @@ type SessionCache = {
 
 const sessionCache = new Map<string, SessionCache>()
 
-async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean): Promise<boolean> {
+async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean, slackTexty?: string): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
-    const htmlHex = Buffer.from(html).toString("hex")
-    const script = `on run argv
-set plainText to item 1 of argv
-set the clipboard to {«class HTML»:«data HTML${htmlHex}», string:plainText}
-end run`
+    const script = `ObjC.import("AppKit")
+function run(argv) {
+  const pasteboard = $.NSPasteboard.generalPasteboard
+  pasteboard.clearContents
+  pasteboard.setStringForType($(argv[0]), $.NSPasteboardTypeString)
+  pasteboard.setStringForType($(argv[1]), $.NSPasteboardTypeHTML)
+  if (argv[2]) pasteboard.setStringForType($(argv[2]), "slack/texty")
+}`
     await execFileAsync("/usr/bin/osascript", [
+      "-l",
+      "JavaScript",
       "-e",
       script,
       plain,
+      html,
+      slackTexty ?? "",
     ])
     return true
   } catch {
@@ -119,7 +127,7 @@ function PullRequestRow(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
-  copy: (plain: string, html: string) => Promise<boolean>
+  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
 }) {
   const [hovered, setHovered] = createSignal(false)
   const [width, setWidth] = createSignal(1)
@@ -280,7 +288,7 @@ function PullRequests(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
-  copy: (plain: string, html: string) => Promise<boolean>
+  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
 }) {
   const cache = getSessionCache(props.sessionID)
   const [open, setOpen] = createSignal(true)
@@ -359,7 +367,7 @@ function PullRequests(props: {
             onMouseUp={(event) => {
               event.stopPropagation()
               const sorted = sortPullRequests(prs())
-              void props.copy(slackPullRequests(sorted), slackPullRequestsHtml(sorted))
+              void props.copy(slackPullRequests(sorted), slackPullRequestsHtml(sorted), slackPullRequestsTexty(sorted))
             }}
           >⧉</text>
         </Show>
@@ -400,8 +408,8 @@ function setup(context: Context) {
         link={context.theme.markdown.link}
         draft={context.theme.text.feedback.warning.default}
         open={context.theme.text.feedback.info.default}
-        copy={async (plain, html) => {
-          const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text))
+        copy={async (plain, html, slackTexty) => {
+          const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
           context.ui.toast.show({
             message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
             variant: copied ? "success" : "error",
@@ -428,8 +436,8 @@ const tui: TuiPlugin = async (api) => {
           link={api.theme.current.markdownLink}
           draft={api.theme.current.warning}
           open={api.theme.current.info}
-          copy={async (plain, html) => {
-            const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text))
+          copy={async (plain, html, slackTexty) => {
+            const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text), slackTexty)
             api.ui.toast({
               message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
               variant: copied ? "success" : "error",
