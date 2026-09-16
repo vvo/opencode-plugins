@@ -8,6 +8,7 @@ import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
   marquee,
+  pullRequestHasComments,
   pullRequestLabel,
   pullRequestReviewIndicator,
   pullRequestStatus,
@@ -86,7 +87,8 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.reviewDecision === right.reviewDecision &&
     left.createdAt === right.createdAt &&
     left.additions === right.additions &&
-    left.deletions === right.deletions
+    left.deletions === right.deletions &&
+    left.commentCount === right.commentCount
   )
 }
 
@@ -115,6 +117,7 @@ function PullRequestRow(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
+  approved: string | RGBA
   copy: (plain: string, html: string) => Promise<boolean>
 }) {
   const [hovered, setHovered] = createSignal(false)
@@ -149,9 +152,15 @@ function PullRequestRow(props: {
   })
 
   const merged = () => props.pr.state === "MERGED"
-  const titleColor = () => (merged() ? props.subdued : props.link)
+  const approved = () => props.pr.state === "OPEN" && props.pr.reviewDecision === "APPROVED"
+  const rowColor = () => approved() ? props.approved : props.subdued
+  const titleColor = () => {
+    if (merged()) return props.subdued
+    return approved() ? props.approved : props.link
+  }
   const statusColor = () => {
     if (merged()) return props.subdued
+    if (approved()) return props.approved
     return props.pr.isDraft ? props.draft : props.open
   }
   return (
@@ -162,22 +171,25 @@ function PullRequestRow(props: {
       onMouseOut={() => setHovered(false)}
     >
       <box flexDirection="row" minWidth={0}>
-        <text fg={props.subdued} flexShrink={0}>• </text>
+        <text fg={rowColor()} flexShrink={0}>• </text>
         <box flexGrow={1} minWidth={0} overflow="hidden" onSizeChange={function () { setWidth(this.width) }}>
           <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
       </box>
       <box flexDirection="row" marginLeft={2}>
-        <text fg={props.subdued}>
+        <text fg={rowColor()}>
           {pullRequestLabel(props.pr)}
           <span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span>
         </text>
         <text
-          fg={props.subdued}
+          fg={rowColor()}
           onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
         > · ⧉</text>
+        <Show when={pullRequestHasComments(props.pr)}>
+          <text fg={rowColor()}> · 💬</text>
+        </Show>
         <Show when={pullRequestReviewIndicator(props.pr)} keyed>
-          {(indicator) => <text fg={indicator === "✓" ? props.open : props.subdued}> · {indicator}</text>}
+          {(indicator) => <text fg={indicator === "✓" ? props.approved : props.subdued}> · {indicator}</text>}
         </Show>
       </box>
     </box>
@@ -186,9 +198,10 @@ function PullRequestRow(props: {
 
 async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,additions,deletions"])
-    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "additions" | "deletions">
-    return { ...ref, ...data }
+    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,additions,deletions,comments"])
+    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "additions" | "deletions"> & { comments: unknown[] }
+    const { comments, ...pr } = data
+    return { ...ref, ...pr, commentCount: comments.length }
   } catch {
     return undefined
   }
@@ -256,6 +269,7 @@ function PullRequests(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
+  approved: string | RGBA
   copy: (plain: string, html: string) => Promise<boolean>
 }) {
   const cache = getSessionCache(props.sessionID)
@@ -340,6 +354,7 @@ function PullRequests(props: {
             link={props.link}
             draft={props.draft}
             open={props.open}
+            approved={props.approved}
             copy={props.copy}
           />
         )}</For>
@@ -366,6 +381,7 @@ function setup(context: Context) {
         link={context.theme.markdown.link}
         draft={context.theme.text.feedback.warning.default}
         open={context.theme.text.feedback.info.default}
+        approved={context.theme.text.feedback.success.default}
         copy={async (plain, html) => {
           const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text))
           context.ui.toast.show({
@@ -394,6 +410,7 @@ const tui: TuiPlugin = async (api) => {
           link={api.theme.current.markdownLink}
           draft={api.theme.current.warning}
           open={api.theme.current.info}
+          approved={api.theme.current.success}
           copy={async (plain, html) => {
             const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text))
             api.ui.toast({

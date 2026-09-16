@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestHasComments, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -29,6 +29,12 @@ test("shows review indicators for open pull requests", () => {
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), undefined)
   assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: true, reviewDecision: "" }), undefined)
   assert.equal(pullRequestReviewIndicator({ state: "MERGED", isDraft: false, reviewDecision: "APPROVED" }), undefined)
+})
+
+test("shows comments for conversations and requested changes", () => {
+  assert.equal(pullRequestHasComments({ reviewDecision: "APPROVED", commentCount: 1 }), true)
+  assert.equal(pullRequestHasComments({ reviewDecision: "CHANGES_REQUESTED", commentCount: 0 }), true)
+  assert.equal(pullRequestHasComments({ reviewDecision: "REVIEW_REQUIRED", commentCount: 0 }), false)
 })
 
 test("labels pull requests with their repository", () => {

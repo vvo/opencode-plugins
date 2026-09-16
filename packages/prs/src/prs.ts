@@ -7,6 +7,7 @@ export type PullRequest = PullRequestRef & {
   createdAt: string
   additions: number
   deletions: number
+  commentCount: number
 }
 
 export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): "✓" | "⏳" | undefined {
@@ -14,6 +15,10 @@ export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDr
   if (pr.reviewDecision === "APPROVED") return "✓"
   if (pr.reviewDecision === "CHANGES_REQUESTED") return undefined
   return "⏳"
+}
+
+export function pullRequestHasComments(pr: Pick<PullRequest, "reviewDecision" | "commentCount">): boolean {
+  return pr.reviewDecision === "CHANGES_REQUESTED" || pr.commentCount > 0
 }
 
 export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "draft" | "open" | "merged" | "closed" {
