@@ -36,7 +36,7 @@ export function sortPullRequests(prs: PullRequest[]): PullRequest[] {
 }
 
 export function slackPullRequest(pr: PullRequest): string {
-  return `:pr: ${pr.owner}/${pr.repo} <${pr.url}|*${pr.title}*> +${pr.additions} -${pr.deletions}`
+  return `:pr: *${pr.owner}/${pr.repo}* · <${pr.url}|${pr.title} (#${pr.number})> +${pr.additions}/-${pr.deletions}`
 }
 
 function escapeHtml(value: string): string {
@@ -46,8 +46,8 @@ function escapeHtml(value: string): string {
 export function slackPullRequestHtml(pr: PullRequest): string {
   const repository = escapeHtml(`${pr.owner}/${pr.repo}`)
   const url = escapeHtml(pr.url)
-  const title = escapeHtml(pr.title)
-  return `<meta charset='utf-8'><html><head></head><body>:pr: ${repository} <a href="${url}"><b>${title}</b></a> +${pr.additions} -${pr.deletions}</body></html>`
+  const title = escapeHtml(`${pr.title} (#${pr.number})`)
+  return `<meta charset='utf-8'><html><head></head><body>:pr: <b>${repository}</b> · <a href="${url}">${title}</a> +${pr.additions}/-${pr.deletions}</body></html>`
 }
 
 const GITHUB_PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g

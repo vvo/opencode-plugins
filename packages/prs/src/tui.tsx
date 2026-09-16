@@ -20,7 +20,7 @@ import {
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
-const REFRESH_MS = 60_000
+const REFRESH_MS = 10_000
 const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
@@ -264,6 +264,7 @@ function PullRequests(props: {
   const [unavailable, setUnavailable] = createSignal(cache.unavailable)
   const visiblePrs = () => sortPullRequests(prs()).slice(0, MAX_VISIBLE_PRS)
   let mounted = true
+  let focused = props.focused?.() ?? true
   let observedRefsKey = pullRequestRefsKey(props.refs())
   const showCache = () => {
     if (!mounted) return
@@ -309,13 +310,14 @@ function PullRequests(props: {
   })
   onMount(() => {
     void revalidate()
-    const interval = setInterval(() => void refresh(true), REFRESH_MS)
+    const interval = setInterval(() => {
+      if (focused) void refresh(true)
+    }, REFRESH_MS)
     onCleanup(() => {
       mounted = false
       clearInterval(interval)
     })
   })
-  let focused = props.focused?.() ?? true
   createEffect(() => {
     const next = props.focused?.() ?? true
     if (next === focused) return
