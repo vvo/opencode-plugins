@@ -4,15 +4,16 @@ export type PullRequest = PullRequestRef & {
   state: "OPEN" | "CLOSED" | "MERGED"
   isDraft: boolean
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | "" | null
+  hasUnresolvedReviewThread: boolean
   createdAt: string
   mergedAt: string | null
   additions: number
   deletions: number
 }
 
-export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): "✓" | "⏳" | "!" | undefined {
+export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision" | "hasUnresolvedReviewThread">): "✓" | "⏳" | "!" | undefined {
   if (pr.state !== "OPEN" || pr.isDraft) return undefined
-  if (pr.reviewDecision === "CHANGES_REQUESTED") return "!"
+  if (pr.reviewDecision === "CHANGES_REQUESTED" || pr.hasUnresolvedReviewThread) return "!"
   if (pr.reviewDecision === "APPROVED") return "✓"
   return "⏳"
 }

@@ -86,6 +86,7 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.state === right.state &&
     left.isDraft === right.isDraft &&
     left.reviewDecision === right.reviewDecision &&
+    left.hasUnresolvedReviewThread === right.hasUnresolvedReviewThread &&
     left.createdAt === right.createdAt &&
     left.mergedAt === right.mergedAt &&
     left.additions === right.additions &&
@@ -189,12 +190,32 @@ function PullRequestRow(props: {
 
 async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions"])
+    const [{ stdout }, hasUnresolvedReviewThread] = await Promise.all([
+      execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions"]),
+      fetchHasUnresolvedReviewThread(ref),
+    ])
     const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions">
-    return { ...ref, ...data }
+    return { ...ref, ...data, hasUnresolvedReviewThread }
   } catch {
     return undefined
   }
+}
+
+async function fetchHasUnresolvedReviewThread(ref: PullRequestRef): Promise<boolean> {
+  let cursor: string | null = null
+  do {
+    const query = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}`
+    const args = ["api", "graphql", "-f", `query=${query}`, "-F", `owner=${ref.owner}`, "-F", `repo=${ref.repo}`, "-F", `number=${ref.number}`]
+    if (cursor) args.push("-F", `cursor=${cursor}`)
+    const { stdout } = await execFileAsync("gh", args)
+    const response = JSON.parse(stdout) as {
+      data: { repository: { pullRequest: { reviewThreads: { nodes: { isResolved: boolean }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } }
+    }
+    const threads = response.data.repository.pullRequest.reviewThreads
+    if (threads.nodes.some((thread) => !thread.isResolved)) return true
+    cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null
+  } while (cursor)
+  return false
 }
 
 function refsFromV2(messages: readonly Message[]): PullRequestRef[] {
