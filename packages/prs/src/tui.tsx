@@ -167,6 +167,10 @@ function PullRequestRow(props: {
   })
 
   const merged = () => props.pr.state === "MERGED"
+  const commentsSuffix = () => {
+    const label = pullRequestCommentsLabel(props.pr)
+    return label ? ` · ${label}` : ""
+  }
   const titleColor = () => merged() ? props.subdued : props.link
   const statusColor = () => {
     if (merged()) return props.subdued
@@ -190,7 +194,7 @@ function PullRequestRow(props: {
         <text fg={props.subdued}>
           {pullRequestLabel(props.pr)}
           <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
-          <Show when={pullRequestCommentsLabel(props.pr)} keyed>{(label) => ` · ${label}`}</Show>
+          {commentsSuffix()}
         </text>
         <text
           fg={props.subdued}
