@@ -4,24 +4,50 @@ export type PullRequest = PullRequestRef & {
   state: "OPEN" | "CLOSED" | "MERGED"
   isDraft: boolean
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | "" | null
-  hasUnresolvedReviewThread: boolean
+  unresolvedThreads: number
+  checks: "passing" | "failing" | "pending" | "none"
   createdAt: string
   mergedAt: string | null
   additions: number
   deletions: number
 }
 
-export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision" | "hasUnresolvedReviewThread">): "✓" | "⏳" | "!" | undefined {
-  if (pr.state !== "OPEN" || pr.isDraft) return undefined
-  if (pr.reviewDecision === "CHANGES_REQUESTED" || pr.hasUnresolvedReviewThread) return "!"
-  if (pr.reviewDecision === "APPROVED") return "✓"
-  return "⏳"
+export type StatusCheck = { status?: string | null; conclusion?: string | null; state?: string | null }
+
+const FAILED_CHECKS = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
+
+export function pullRequestChecks(checks: StatusCheck[]): PullRequest["checks"] {
+  const results = checks.map((check) => check.conclusion ?? check.state ?? "")
+  if (results.some((result) => FAILED_CHECKS.includes(result))) return "failing"
+  if (checks.some((check) => check.status && check.status !== "COMPLETED") || results.includes("PENDING") || results.includes("EXPECTED")) return "pending"
+  if (results.includes("SUCCESS")) return "passing"
+  return "none"
+}
+
+export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): "✓" | "×" | undefined {
+  if (pr.state !== "OPEN") return undefined
+  if (pr.checks === "passing") return "✓"
+  if (pr.checks === "failing") return "×"
+  return undefined
 }
 
 export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "draft" | "open" | "merged" | "closed" {
   if (pr.state === "MERGED") return "merged"
   if (pr.state === "CLOSED") return "closed"
   return pr.isDraft ? "draft" : "open"
+}
+
+export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): string {
+  const status = pullRequestStatus(pr)
+  if (status !== "open") return status
+  if (pr.reviewDecision === "APPROVED") return "approved"
+  if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes requested"
+  return "waiting"
+}
+
+export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "unresolvedThreads">): string | undefined {
+  if (pr.state !== "OPEN" || pr.unresolvedThreads === 0) return undefined
+  return pr.unresolvedThreads === 1 ? "1 comment" : `${pr.unresolvedThreads} comments`
 }
 
 export function pullRequestLabel(pr: PullRequestRef): string {

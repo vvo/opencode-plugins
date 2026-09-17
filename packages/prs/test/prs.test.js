@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestLabel, pullRequestReviewIndicator, pullRequestStatus, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -22,14 +22,33 @@ test("labels pull request states", () => {
   assert.equal(pullRequestStatus({ state: "MERGED", isDraft: false }), "merged")
 })
 
-test("shows review indicators for open pull requests", () => {
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED", hasUnresolvedReviewThread: false }), "✓")
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED", hasUnresolvedReviewThread: false }), "⏳")
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "", hasUnresolvedReviewThread: false }), "⏳")
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED", hasUnresolvedReviewThread: false }), "!")
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED", hasUnresolvedReviewThread: true }), "!")
-  assert.equal(pullRequestReviewIndicator({ state: "OPEN", isDraft: true, reviewDecision: "", hasUnresolvedReviewThread: true }), undefined)
-  assert.equal(pullRequestReviewIndicator({ state: "MERGED", isDraft: false, reviewDecision: "APPROVED", hasUnresolvedReviewThread: true }), undefined)
+test("labels review state with words", () => {
+  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), "approved")
+  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), "changes requested")
+  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED" }), "waiting")
+  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "" }), "waiting")
+  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: true, reviewDecision: "APPROVED" }), "draft")
+  assert.equal(pullRequestStatusLabel({ state: "MERGED", isDraft: false, reviewDecision: "APPROVED" }), "merged")
+})
+
+test("counts unresolved review threads", () => {
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", unresolvedThreads: 0 }), undefined)
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", unresolvedThreads: 1 }), "1 comment")
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", unresolvedThreads: 3 }), "3 comments")
+  assert.equal(pullRequestCommentsLabel({ state: "MERGED", unresolvedThreads: 3 }), undefined)
+})
+
+test("summarizes status checks", () => {
+  assert.equal(pullRequestChecks([]), "none")
+  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "COMPLETED", conclusion: "SKIPPED" }, { state: "SUCCESS" }]), "passing")
+  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "COMPLETED", conclusion: "FAILURE" }]), "failing")
+  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "IN_PROGRESS", conclusion: null }]), "pending")
+  assert.equal(pullRequestChecks([{ state: "PENDING" }]), "pending")
+  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SKIPPED" }]), "none")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing" }), "✓")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "failing" }), "×")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "pending" }), undefined)
+  assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing" }), undefined)
 })
 
 test("labels pull requests with their repository", () => {
@@ -54,7 +73,7 @@ test("scrolls long titles", () => {
 test("sorts open, draft, and merged PRs by recency", () => {
   const pr = (number, state, isDraft, createdAt, mergedAt = null) => ({
     owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
-    title: String(number), state, isDraft, reviewDecision: null, hasUnresolvedReviewThread: false, createdAt, mergedAt, additions: 4, deletions: 2,
+    title: String(number), state, isDraft, reviewDecision: null, unresolvedThreads: 0, checks: "none", createdAt, mergedAt, additions: 4, deletions: 2,
   })
   const sorted = sortPullRequests([
     pr(1, "MERGED", false, "2026-09-04T10:00:00Z", "2026-09-05T10:00:00Z"),
@@ -70,7 +89,7 @@ test("formats a PR for Slack", () => {
   const pr = {
     owner: "vvo", repo: "opencode-plugins", number: 22,
     url: "https://github.com/vvo/opencode-plugins/pull/22",
-    title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED", hasUnresolvedReviewThread: false,
+    title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED", unresolvedThreads: 0, checks: "passing",
     createdAt: "2026-09-04T10:00:00Z", mergedAt: "2026-09-04T11:00:00Z", additions: 4, deletions: 4,
   }
   assert.equal(slackPullRequest(pr), ":pr: *vvo/opencode-plugins* · <https://github.com/vvo/opencode-plugins/pull/22|lower the cursor (#22)> +4/-4")

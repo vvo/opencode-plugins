@@ -8,9 +8,11 @@ import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
   marquee,
+  pullRequestChecks,
+  pullRequestChecksIndicator,
+  pullRequestCommentsLabel,
   pullRequestLabel,
-  pullRequestReviewIndicator,
-  pullRequestStatus,
+  pullRequestStatusLabel,
   slackPullRequest,
   slackPullRequestHtml,
   slackPullRequests,
@@ -20,6 +22,7 @@ import {
   uniquePullRequests,
   type PullRequest,
   type PullRequestRef,
+  type StatusCheck,
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
@@ -94,7 +97,8 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.state === right.state &&
     left.isDraft === right.isDraft &&
     left.reviewDecision === right.reviewDecision &&
-    left.hasUnresolvedReviewThread === right.hasUnresolvedReviewThread &&
+    left.unresolvedThreads === right.unresolvedThreads &&
+    left.checks === right.checks &&
     left.createdAt === right.createdAt &&
     left.mergedAt === right.mergedAt &&
     left.additions === right.additions &&
@@ -127,6 +131,8 @@ function PullRequestRow(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
+  success: string | RGBA
+  error: string | RGBA
   copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
 }) {
   const [hovered, setHovered] = createSignal(false)
@@ -164,7 +170,8 @@ function PullRequestRow(props: {
   const titleColor = () => merged() ? props.subdued : props.link
   const statusColor = () => {
     if (merged()) return props.subdued
-    return props.pr.isDraft ? props.draft : props.open
+    if (props.pr.isDraft || props.pr.reviewDecision === "CHANGES_REQUESTED") return props.draft
+    return props.open
   }
   return (
     <box
@@ -182,14 +189,17 @@ function PullRequestRow(props: {
       <box flexDirection="row" marginLeft={2}>
         <text fg={props.subdued}>
           {pullRequestLabel(props.pr)}
-          <span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span>
+          <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
+          <Show when={pullRequestCommentsLabel(props.pr)} keyed>{(label) => ` · ${label}`}</Show>
         </text>
         <text
           fg={props.subdued}
           onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
         > · ⧉</text>
-        <Show when={pullRequestReviewIndicator(props.pr)} keyed>
-          {(indicator) => <text fg={props.subdued}> · {indicator}</text>}
+        <Show when={pullRequestChecksIndicator(props.pr)} keyed>
+          {(indicator) => (
+            <text fg={props.subdued}> · <span style={{ fg: indicator === "✓" ? props.success : props.error }}>{indicator}</span></text>
+          )}
         </Show>
       </box>
     </box>
@@ -198,18 +208,19 @@ function PullRequestRow(props: {
 
 async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
   try {
-    const [{ stdout }, hasUnresolvedReviewThread] = await Promise.all([
-      execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions"]),
-      fetchHasUnresolvedReviewThread(ref),
+    const [{ stdout }, unresolvedThreads] = await Promise.all([
+      execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions,statusCheckRollup"]),
+      fetchUnresolvedThreads(ref),
     ])
-    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions">
-    return { ...ref, ...data, hasUnresolvedReviewThread }
+    const { statusCheckRollup, ...data } = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions"> & { statusCheckRollup: StatusCheck[] | null }
+    return { ...ref, ...data, unresolvedThreads, checks: pullRequestChecks(statusCheckRollup ?? []) }
   } catch {
     return undefined
   }
 }
 
-async function fetchHasUnresolvedReviewThread(ref: PullRequestRef): Promise<boolean> {
+async function fetchUnresolvedThreads(ref: PullRequestRef): Promise<number> {
+  let unresolved = 0
   let cursor: string | null = null
   do {
     const query = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}`
@@ -220,10 +231,10 @@ async function fetchHasUnresolvedReviewThread(ref: PullRequestRef): Promise<bool
       data: { repository: { pullRequest: { reviewThreads: { nodes: { isResolved: boolean }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } }
     }
     const threads = response.data.repository.pullRequest.reviewThreads
-    if (threads.nodes.some((thread) => !thread.isResolved)) return true
+    unresolved += threads.nodes.filter((thread) => !thread.isResolved).length
     cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null
   } while (cursor)
-  return false
+  return unresolved
 }
 
 function refsFromV2(messages: readonly Message[]): PullRequestRef[] {
@@ -288,6 +299,8 @@ function PullRequests(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
+  success: string | RGBA
+  error: string | RGBA
   copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
 }) {
   const cache = getSessionCache(props.sessionID)
@@ -382,6 +395,8 @@ function PullRequests(props: {
             link={props.link}
             draft={props.draft}
             open={props.open}
+            success={props.success}
+            error={props.error}
             copy={props.copy}
           />
         )}</For>
@@ -408,6 +423,8 @@ function setup(context: Context) {
         link={context.theme.markdown.link}
         draft={context.theme.text.feedback.warning.default}
         open={context.theme.text.feedback.info.default}
+        success={context.theme.text.feedback.success.default}
+        error={context.theme.text.feedback.error.default}
         copy={async (plain, html, slackTexty) => {
           const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
           context.ui.toast.show({
@@ -436,6 +453,8 @@ const tui: TuiPlugin = async (api) => {
           link={api.theme.current.markdownLink}
           draft={api.theme.current.warning}
           open={api.theme.current.info}
+          success={api.theme.current.success}
+          error={api.theme.current.error}
           copy={async (plain, html, slackTexty) => {
             const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text), slackTexty)
             api.ui.toast({
