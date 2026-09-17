@@ -190,19 +190,22 @@ function PullRequestRow(props: {
           <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
       </box>
-      <box flexDirection="row" marginLeft={2}>
-        <text fg={props.subdued}>
-          {pullRequestLabel(props.pr)}
-          <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
-          {commentsSuffix()}
-        </text>
+      <box flexDirection="row" marginLeft={2} minWidth={0}>
+        <box flexShrink={1} minWidth={0} overflow="hidden">
+          <text fg={props.subdued} wrapMode="none">
+            {pullRequestLabel(props.pr)}
+            <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
+            {commentsSuffix()}
+          </text>
+        </box>
         <text
           fg={props.subdued}
+          flexShrink={0}
           onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
         > · ⧉</text>
         <Show when={pullRequestChecksIndicator(props.pr)} keyed>
           {(indicator) => (
-            <text fg={props.subdued}> · <span style={{ fg: indicator === "✓" ? props.success : props.error }}>{indicator}</span></text>
+            <text fg={props.subdued} flexShrink={0}> · <span style={{ fg: indicator === "✓" ? props.success : props.error }}>{indicator}</span></text>
           )}
         </Show>
       </box>
