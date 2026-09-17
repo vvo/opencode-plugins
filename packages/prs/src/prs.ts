@@ -71,17 +71,19 @@ const GH_API_BODY = /\s(?:-[fF]|--field|--raw-field|--input)(?:=|\s|$)/
 
 function createsPullRequest(command: string): boolean {
   if (GH_PR_CREATE.test(command)) return true
-  const api = GH_API.exec(command)
-  if (!api) return false
-  const call = command.slice(api.index)
+  const start = command.search(GH_API)
+  if (start === -1) return false
+  const call = command.slice(start)
   if (!GH_API_PULLS.test(call)) return false
   const method = GH_API_METHOD.exec(call)?.[1]
-  // gh api defaults to POST when fields or --input are passed without --method
-  return method ? method.toUpperCase() === "POST" : GH_API_BODY.test(call)
+  if (method) return method.toUpperCase() === "POST"
+  // gh api switches to POST when a request body is passed
+  return GH_API_BODY.test(call)
 }
 
 export function extractCreatedPullRequests(command: string, output: string): PullRequestRef[] {
-  return createsPullRequest(command) ? extractPullRequests(output) : []
+  if (!createsPullRequest(command)) return []
+  return extractPullRequests(output)
 }
 
 export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestRef[] {
