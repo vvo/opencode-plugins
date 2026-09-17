@@ -8,15 +8,22 @@ import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
   marquee,
+  pullRequestChecks,
+  pullRequestChecksIndicator,
+  pullRequestCommentsLabel,
   pullRequestLabel,
-  pullRequestReviewIndicator,
-  pullRequestStatus,
+  pullRequestStatusLabel,
   slackPullRequest,
   slackPullRequestHtml,
+  slackPullRequests,
+  slackPullRequestsHtml,
+  slackPullRequestsTexty,
   sortPullRequests,
   uniquePullRequests,
+  type ChecksIndicator,
   type PullRequest,
   type PullRequestRef,
+  type StatusCheck,
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
@@ -25,6 +32,7 @@ const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
 const MARQUEE_STEP_MS = 120
+const MERGED_OPACITY = 0.7
 type Context = Plugin.Context
 type Message = { type?: string; content?: unknown[] }
 type ShellToolPart = {
@@ -49,18 +57,25 @@ type SessionCache = {
 
 const sessionCache = new Map<string, SessionCache>()
 
-async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean): Promise<boolean> {
+async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean, slackTexty?: string): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
-    const htmlHex = Buffer.from(html).toString("hex")
-    const script = `on run argv
-set plainText to item 1 of argv
-set the clipboard to {«class HTML»:«data HTML${htmlHex}», string:plainText}
-end run`
+    const script = `ObjC.import("AppKit")
+function run(argv) {
+  const pasteboard = $.NSPasteboard.generalPasteboard
+  pasteboard.clearContents
+  pasteboard.setStringForType($(argv[0]), $.NSPasteboardTypeString)
+  pasteboard.setStringForType($(argv[1]), $.NSPasteboardTypeHTML)
+  if (argv[2]) pasteboard.setStringForType($(argv[2]), "slack/texty")
+}`
     await execFileAsync("/usr/bin/osascript", [
+      "-l",
+      "JavaScript",
       "-e",
       script,
       plain,
+      html,
+      slackTexty ?? "",
     ])
     return true
   } catch {
@@ -84,7 +99,10 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.state === right.state &&
     left.isDraft === right.isDraft &&
     left.reviewDecision === right.reviewDecision &&
+    left.unresolvedThreads === right.unresolvedThreads &&
+    left.checks === right.checks &&
     left.createdAt === right.createdAt &&
+    left.mergedAt === right.mergedAt &&
     left.additions === right.additions &&
     left.deletions === right.deletions
   )
@@ -115,7 +133,9 @@ function PullRequestRow(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
-  copy: (plain: string, html: string) => Promise<boolean>
+  success: string | RGBA
+  error: string | RGBA
+  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
 }) {
   const [hovered, setHovered] = createSignal(false)
   const [width, setWidth] = createSignal(1)
@@ -149,10 +169,19 @@ function PullRequestRow(props: {
   })
 
   const merged = () => props.pr.state === "MERGED"
-  const titleColor = () => (merged() ? props.subdued : props.link)
+  const commentsSuffix = () => {
+    const label = pullRequestCommentsLabel(props.pr)
+    return label ? ` · ${label}` : ""
+  }
+  const titleColor = () => merged() ? props.subdued : props.link
   const statusColor = () => {
     if (merged()) return props.subdued
     return props.pr.isDraft ? props.draft : props.open
+  }
+  const checksColor = (indicator: ChecksIndicator) => {
+    if (indicator === "✓") return props.success
+    if (indicator === "×") return props.error
+    return props.subdued
   }
   return (
     <box
@@ -167,17 +196,23 @@ function PullRequestRow(props: {
           <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
       </box>
-      <box flexDirection="row" marginLeft={2}>
-        <text fg={props.subdued}>
-          {pullRequestLabel(props.pr)}
-          <span style={{ fg: statusColor() }}> · {pullRequestStatus(props.pr)}</span>
-        </text>
-        <text
-          fg={props.subdued}
-          onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
-        > · ⧉</text>
-        <Show when={pullRequestReviewIndicator(props.pr)} keyed>
-          {(indicator) => <text fg={indicator === "✓" ? props.open : props.subdued}> · {indicator}</text>}
+      <box
+        flexDirection="row"
+        marginLeft={2}
+        minWidth={0}
+        onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
+      >
+        <box flexShrink={1} minWidth={0} overflow="hidden">
+          <text fg={props.subdued} wrapMode="none">
+            {pullRequestLabel(props.pr)}
+            <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
+            {commentsSuffix()}
+          </text>
+        </box>
+        <Show when={pullRequestChecksIndicator(props.pr)} keyed>
+          {(indicator) => (
+            <text fg={props.subdued} flexShrink={0}> · <span style={{ fg: checksColor(indicator) }}>{indicator}</span></text>
+          )}
         </Show>
       </box>
     </box>
@@ -186,12 +221,33 @@ function PullRequestRow(props: {
 
 async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,additions,deletions"])
-    const data = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "additions" | "deletions">
-    return { ...ref, ...data }
+    const [{ stdout }, unresolvedThreads] = await Promise.all([
+      execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions,statusCheckRollup"]),
+      fetchUnresolvedThreads(ref),
+    ])
+    const { statusCheckRollup, ...data } = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions"> & { statusCheckRollup: StatusCheck[] | null }
+    return { ...ref, ...data, unresolvedThreads, checks: pullRequestChecks(statusCheckRollup ?? []) }
   } catch {
     return undefined
   }
+}
+
+async function fetchUnresolvedThreads(ref: PullRequestRef): Promise<number> {
+  let unresolved = 0
+  let cursor: string | null = null
+  do {
+    const query = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}`
+    const args = ["api", "graphql", "-f", `query=${query}`, "-F", `owner=${ref.owner}`, "-F", `repo=${ref.repo}`, "-F", `number=${ref.number}`]
+    if (cursor) args.push("-F", `cursor=${cursor}`)
+    const { stdout } = await execFileAsync("gh", args)
+    const response = JSON.parse(stdout) as {
+      data: { repository: { pullRequest: { reviewThreads: { nodes: { isResolved: boolean }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } }
+    }
+    const threads = response.data.repository.pullRequest.reviewThreads
+    unresolved += threads.nodes.filter((thread) => !thread.isResolved).length
+    cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null
+  } while (cursor)
+  return unresolved
 }
 
 function refsFromV2(messages: readonly Message[]): PullRequestRef[] {
@@ -256,7 +312,9 @@ function PullRequests(props: {
   link: string | RGBA
   draft: string | RGBA
   open: string | RGBA
-  copy: (plain: string, html: string) => Promise<boolean>
+  success: string | RGBA
+  error: string | RGBA
+  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
 }) {
   const cache = getSessionCache(props.sessionID)
   const [open, setOpen] = createSignal(true)
@@ -329,6 +387,16 @@ function PullRequests(props: {
       <box flexDirection="row" gap={1} onMouseUp={() => setOpen((value) => !value)}>
         <text fg={props.foreground}>{open() ? "▼" : "▶"}</text>
         <text fg={props.foreground}><b>PRs ({prs().length})</b></text>
+        <Show when={prs().length > 0}>
+          <text
+            fg={props.subdued}
+            onMouseUp={(event) => {
+              event.stopPropagation()
+              const sorted = sortPullRequests(prs())
+              void props.copy(slackPullRequests(sorted), slackPullRequestsHtml(sorted), slackPullRequestsTexty(sorted))
+            }}
+          >⧉</text>
+        </Show>
       </box>
       <Show when={open()}>
         <Show when={unavailable()}><text fg={props.subdued}>GitHub unavailable</text></Show>
@@ -340,6 +408,8 @@ function PullRequests(props: {
             link={props.link}
             draft={props.draft}
             open={props.open}
+            success={props.success}
+            error={props.error}
             copy={props.copy}
           />
         )}</For>
@@ -366,8 +436,10 @@ function setup(context: Context) {
         link={context.theme.markdown.link}
         draft={context.theme.text.feedback.warning.default}
         open={context.theme.text.feedback.info.default}
-        copy={async (plain, html) => {
-          const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text))
+        success={context.theme.text.feedback.success.default}
+        error={context.theme.text.feedback.error.default}
+        copy={async (plain, html, slackTexty) => {
+          const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
           context.ui.toast.show({
             message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
             variant: copied ? "success" : "error",
@@ -394,8 +466,10 @@ const tui: TuiPlugin = async (api) => {
           link={api.theme.current.markdownLink}
           draft={api.theme.current.warning}
           open={api.theme.current.info}
-          copy={async (plain, html) => {
-            const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text))
+          success={api.theme.current.success}
+          error={api.theme.current.error}
+          copy={async (plain, html, slackTexty) => {
+            const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text), slackTexty)
             api.ui.toast({
               message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
               variant: copied ? "success" : "error",

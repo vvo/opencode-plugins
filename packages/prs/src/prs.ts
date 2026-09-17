@@ -4,16 +4,34 @@ export type PullRequest = PullRequestRef & {
   state: "OPEN" | "CLOSED" | "MERGED"
   isDraft: boolean
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | "" | null
+  unresolvedThreads: number
+  checks: "passing" | "failing" | "pending" | "none"
   createdAt: string
+  mergedAt: string | null
   additions: number
   deletions: number
 }
 
-export function pullRequestReviewIndicator(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): "✓" | "⏳" | undefined {
-  if (pr.state !== "OPEN" || pr.isDraft) return undefined
-  if (pr.reviewDecision === "APPROVED") return "✓"
-  if (pr.reviewDecision === "CHANGES_REQUESTED") return undefined
-  return "⏳"
+export type StatusCheck = { status?: string | null; conclusion?: string | null; state?: string | null }
+
+const FAILED_CHECKS = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
+
+export function pullRequestChecks(checks: StatusCheck[]): PullRequest["checks"] {
+  const results = checks.map((check) => check.conclusion ?? check.state ?? "")
+  if (results.some((result) => FAILED_CHECKS.includes(result))) return "failing"
+  if (checks.some((check) => check.status && check.status !== "COMPLETED") || results.includes("PENDING") || results.includes("EXPECTED")) return "pending"
+  if (results.includes("SUCCESS")) return "passing"
+  return "none"
+}
+
+export type ChecksIndicator = "✓" | "×" | "◌"
+
+export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): ChecksIndicator | undefined {
+  if (pr.state !== "OPEN") return undefined
+  if (pr.checks === "passing") return "✓"
+  if (pr.checks === "failing") return "×"
+  if (pr.checks === "pending") return "◌"
+  return undefined
 }
 
 export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "draft" | "open" | "merged" | "closed" {
@@ -22,8 +40,21 @@ export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "
   return pr.isDraft ? "draft" : "open"
 }
 
+export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): string {
+  const status = pullRequestStatus(pr)
+  if (status !== "open") return status
+  return pr.reviewDecision === "APPROVED" ? "approved" : "waiting"
+}
+
+export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "reviewDecision" | "unresolvedThreads">): string | undefined {
+  if (pr.state !== "OPEN") return undefined
+  const count = Math.max(pr.unresolvedThreads, pr.reviewDecision === "CHANGES_REQUESTED" ? 1 : 0)
+  if (count === 0) return undefined
+  return count === 1 ? "1 comment" : `${count} comments`
+}
+
 export function pullRequestLabel(pr: PullRequestRef): string {
-  return `${pr.owner}/${pr.repo}#${pr.number}`
+  return `${pr.repo}#${pr.number}`
 }
 
 export function sortPullRequests(prs: PullRequest[]): PullRequest[] {
@@ -31,12 +62,19 @@ export function sortPullRequests(prs: PullRequest[]): PullRequest[] {
   return [...prs].sort((left, right) => {
     const status = rank[pullRequestStatus(left)] - rank[pullRequestStatus(right)]
     if (status !== 0) return status
-    return Date.parse(right.createdAt) - Date.parse(left.createdAt)
+    const leftDate = left.state === "MERGED" ? left.mergedAt ?? left.createdAt : left.createdAt
+    const rightDate = right.state === "MERGED" ? right.mergedAt ?? right.createdAt : right.createdAt
+    return Date.parse(rightDate) - Date.parse(leftDate)
   })
 }
 
 export function slackPullRequest(pr: PullRequest): string {
   return `:pr: *${pr.owner}/${pr.repo}* · <${pr.url}|${pr.title} (#${pr.number})> +${pr.additions}/-${pr.deletions}`
+}
+
+export function slackPullRequests(prs: PullRequest[]): string {
+  if (prs.length === 1) return slackPullRequest(prs[0])
+  return prs.map((pr) => `- ${slackPullRequest(pr)}`).join("\n")
 }
 
 function escapeHtml(value: string): string {
@@ -48,6 +86,26 @@ export function slackPullRequestHtml(pr: PullRequest): string {
   const url = escapeHtml(pr.url)
   const title = escapeHtml(`${pr.title} (#${pr.number})`)
   return `<meta charset='utf-8'><html><head></head><body>:pr: <b>${repository}</b> · <a href="${url}">${title}</a> +${pr.additions}/-${pr.deletions}</body></html>`
+}
+
+export function slackPullRequestsHtml(prs: PullRequest[]): string {
+  if (prs.length === 1) return slackPullRequestHtml(prs[0])
+  const items = prs.map((pr) => slackPullRequestHtml(pr).replace(/^.*<body>|<\/body><\/html>$/g, ""))
+  return `<meta charset='utf-8'><html><head></head><body><ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul></body></html>`
+}
+
+export function slackPullRequestsTexty(prs: PullRequest[]): string | undefined {
+  if (prs.length < 2) return undefined
+  const ops = prs.flatMap((pr) => [
+    { insert: { slackemoji: { text: ":pr:" } } },
+    { insert: " " },
+    { attributes: { bold: true }, insert: `${pr.owner}/${pr.repo}` },
+    { insert: " · " },
+    { attributes: { link: pr.url }, insert: `${pr.title} (#${pr.number})` },
+    { insert: ` +${pr.additions}/-${pr.deletions}` },
+    { attributes: { list: "bullet" }, insert: "\n" },
+  ])
+  return JSON.stringify({ ops })
 }
 
 const GITHUB_PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g
