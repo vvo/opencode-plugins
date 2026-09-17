@@ -57,6 +57,12 @@ type SessionCache = {
 
 const sessionCache = new Map<string, SessionCache>()
 
+function fade(color: string | RGBA, opacity: number): string | RGBA {
+  if (typeof color === "string") return color
+  const [r, g, b] = color.toInts()
+  return `#${[r, g, b, Math.round(opacity * 255)].map((value) => value.toString(16).padStart(2, "0")).join("")}`
+}
+
 async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean, slackTexty?: string): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
@@ -173,9 +179,10 @@ function PullRequestRow(props: {
     const label = pullRequestCommentsLabel(props.pr)
     return label ? ` · ${label}` : ""
   }
-  const titleColor = () => merged() ? props.subdued : props.link
+  const subdued = () => merged() ? fade(props.subdued, MERGED_OPACITY) : props.subdued
+  const titleColor = () => merged() ? subdued() : props.link
   const statusColor = () => {
-    if (merged()) return props.subdued
+    if (merged()) return subdued()
     return props.pr.isDraft ? props.draft : props.open
   }
   const checksColor = (indicator: ChecksIndicator) => {
@@ -191,7 +198,7 @@ function PullRequestRow(props: {
       onMouseOut={() => setHovered(false)}
     >
       <box flexDirection="row" minWidth={0}>
-        <text fg={props.subdued} flexShrink={0}>• </text>
+        <text fg={subdued()} flexShrink={0}>• </text>
         <box flexGrow={1} minWidth={0} overflow="hidden" onSizeChange={function () { setWidth(this.width) }}>
           <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
@@ -203,7 +210,7 @@ function PullRequestRow(props: {
         onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
       >
         <box flexShrink={1} minWidth={0} overflow="hidden">
-          <text fg={props.subdued} wrapMode="none">
+          <text fg={subdued()} wrapMode="none">
             {pullRequestLabel(props.pr)}
             <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
             {commentsSuffix()}
