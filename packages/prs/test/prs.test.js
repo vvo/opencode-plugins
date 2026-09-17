@@ -49,7 +49,8 @@ test("summarizes status checks", () => {
   assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SKIPPED" }]), "none")
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing" }), "✓")
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "failing" }), "×")
-  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "pending" }), undefined)
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "pending" }), "◌")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "none" }), undefined)
   assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing" }), undefined)
 })
 

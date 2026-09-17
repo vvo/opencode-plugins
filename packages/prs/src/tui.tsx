@@ -20,6 +20,7 @@ import {
   slackPullRequestsTexty,
   sortPullRequests,
   uniquePullRequests,
+  type ChecksIndicator,
   type PullRequest,
   type PullRequestRef,
   type StatusCheck,
@@ -31,6 +32,7 @@ const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
 const MARQUEE_STEP_MS = 120
+const MERGED_OPACITY = 0.7
 type Context = Plugin.Context
 type Message = { type?: string; content?: unknown[] }
 type ShellToolPart = {
@@ -176,6 +178,11 @@ function PullRequestRow(props: {
     if (merged()) return props.subdued
     return props.pr.isDraft ? props.draft : props.open
   }
+  const checksColor = (indicator: ChecksIndicator) => {
+    if (indicator === "✓") return props.success
+    if (indicator === "×") return props.error
+    return props.subdued
+  }
   return (
     <box
       flexDirection="column"
@@ -189,7 +196,12 @@ function PullRequestRow(props: {
           <text fg={titleColor()} wrapMode="none"><a href={props.pr.url}>{marquee(props.pr.title, width(), offset())}</a></text>
         </box>
       </box>
-      <box flexDirection="row" marginLeft={2} minWidth={0}>
+      <box
+        flexDirection="row"
+        marginLeft={2}
+        minWidth={0}
+        onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
+      >
         <box flexShrink={1} minWidth={0} overflow="hidden">
           <text fg={props.subdued} wrapMode="none">
             {pullRequestLabel(props.pr)}
@@ -197,14 +209,9 @@ function PullRequestRow(props: {
             {commentsSuffix()}
           </text>
         </box>
-        <text
-          fg={props.subdued}
-          flexShrink={0}
-          onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
-        > · ⧉</text>
         <Show when={pullRequestChecksIndicator(props.pr)} keyed>
           {(indicator) => (
-            <text fg={props.subdued} flexShrink={0}> · <span style={{ fg: indicator === "✓" ? props.success : props.error }}>{indicator}</span></text>
+            <text fg={props.subdued} flexShrink={0}> · <span style={{ fg: checksColor(indicator) }}>{indicator}</span></text>
           )}
         </Show>
       </box>

@@ -24,10 +24,13 @@ export function pullRequestChecks(checks: StatusCheck[]): PullRequest["checks"] 
   return "none"
 }
 
-export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): "✓" | "×" | undefined {
+export type ChecksIndicator = "✓" | "×" | "◌"
+
+export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): ChecksIndicator | undefined {
   if (pr.state !== "OPEN") return undefined
   if (pr.checks === "passing") return "✓"
   if (pr.checks === "failing") return "×"
+  if (pr.checks === "pending") return "◌"
   return undefined
 }
 
