@@ -51,7 +51,7 @@ export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "unreso
 }
 
 export function pullRequestLabel(pr: PullRequestRef): string {
-  return `${pr.owner}/${pr.repo}#${pr.number}`
+  return `${pr.repo}#${pr.number}`
 }
 
 export function sortPullRequests(prs: PullRequest[]): PullRequest[] {

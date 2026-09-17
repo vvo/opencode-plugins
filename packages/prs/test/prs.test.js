@@ -55,7 +55,7 @@ test("labels pull requests with their repository", () => {
   assert.equal(pullRequestLabel({
     owner: "vercel", repo: "front", number: 90443,
     url: "https://github.com/vercel/front/pull/90443",
-  }), "vercel/front#90443")
+  }), "front#90443")
 })
 
 test("only extracts pull requests created by gh", () => {
