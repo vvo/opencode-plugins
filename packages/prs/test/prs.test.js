@@ -44,6 +44,21 @@ test("only extracts pull requests created by gh", () => {
   assert.equal(extractCreatedPullRequests("gh pr create --draft", url)[0].url, url)
 })
 
+test("extracts pull requests created through the REST API", () => {
+  const url = "https://github.com/vercel/api/pull/92184"
+  const created = (command) => extractCreatedPullRequests(command, `${url} draft=true #92184\n`).length
+  assert.equal(created(`gh api repos/vercel/api/pulls -X POST -f title="[tinybird] Delete pipe" -f head=branch -f base=main -F draft=true --jq '.html_url' 2>&1 | tail -1`), 1)
+  assert.equal(created("gh api --method POST /repos/vercel/api/pulls -f title=t -f head=h -f base=main"), 1)
+  assert.equal(created("gh api repos/vercel/api/pulls -f title=t -f head=h -f base=main"), 1)
+  assert.equal(created("gh api repos/vercel/api/pulls --input body.json"), 1)
+  assert.equal(created("git push -u origin branch && gh api 'repos/{owner}/{repo}/pulls' -X POST -f title=t -f head=h -f base=main"), 1)
+  assert.equal(created("gh api repos/vercel/api/pulls"), 0)
+  assert.equal(created("gh api repos/vercel/api/pulls -X GET -f state=open"), 0)
+  assert.equal(created("gh api repos/vercel/api/pulls/92184 -X PATCH -f body=updated"), 0)
+  assert.equal(created("gh api repos/vercel/api/pulls/92184/requested_reviewers -X POST -f 'reviewers[]=sage'"), 0)
+  assert.equal(created("gh api repos/vercel/api/issues -X POST -f title=t"), 0)
+})
+
 test("scrolls long titles", () => {
   assert.equal(marquee("abcdef", 4, 0), "abcd")
   assert.equal(marquee("abcdef", 4, 2), "cdef")

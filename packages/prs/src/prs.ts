@@ -63,9 +63,25 @@ export function extractPullRequests(text: string): PullRequestRef[] {
   return [...refs.values()]
 }
 
+const GH_PR_CREATE = /(?:^|[;&|\s])gh\s+pr\s+create(?:\s|$)/
+const GH_API = /(?:^|[;&|\s])gh\s+api\s/
+const GH_API_PULLS = /\s["']?(?:https:\/\/api\.github\.com)?\/?repos\/[^\s\/"']+\/[^\s\/"']+\/pulls["']?(?=\s|$)/
+const GH_API_METHOD = /\s(?:-X|--method)(?:=|\s+)?["']?(\w+)/
+const GH_API_BODY = /\s(?:-[fF]|--field|--raw-field|--input)(?:=|\s|$)/
+
+function createsPullRequest(command: string): boolean {
+  if (GH_PR_CREATE.test(command)) return true
+  const api = GH_API.exec(command)
+  if (!api) return false
+  const call = command.slice(api.index)
+  if (!GH_API_PULLS.test(call)) return false
+  const method = GH_API_METHOD.exec(call)?.[1]
+  // gh api defaults to POST when fields or --input are passed without --method
+  return method ? method.toUpperCase() === "POST" : GH_API_BODY.test(call)
+}
+
 export function extractCreatedPullRequests(command: string, output: string): PullRequestRef[] {
-  if (!/(?:^|[;&|\s])gh\s+pr\s+create(?:\s|$)/.test(command)) return []
-  return extractPullRequests(output)
+  return createsPullRequest(command) ? extractPullRequests(output) : []
 }
 
 export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestRef[] {
