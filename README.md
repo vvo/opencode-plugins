@@ -25,8 +25,8 @@ Shows GitHub pull requests opened by the current session. Every title links to G
 
 <a href="packages/prs">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/prs-hover-dark-v2.gif">
-    <img src="assets/prs-hover-light-v2.gif" alt="Pull requests opened by an OpenCode session" width="640">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/prs-hover-dark-v3.gif">
+    <img src="assets/prs-hover-light-v3.gif" alt="Pull requests opened by an OpenCode session" width="640">
   </picture>
 </a>
 

@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Fake gh for screenshots: canned answers for `gh pr view` and the reviewThreads GraphQL query."""
+import json, re, sys
+
+PRS = {
+    37: {
+        "title": "[opencode-prs] Show review state, comments and checks per PR",
+        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED",
+        "createdAt": "2026-09-17T09:12:00Z", "mergedAt": None,
+        "additions": 214, "deletions": 38, "checks": "SUCCESS", "unresolved": 0,
+    },
+    212: {
+        "title": "Update time zone database to 2026b",
+        "state": "OPEN", "isDraft": False, "reviewDecision": "CHANGES_REQUESTED",
+        "createdAt": "2026-09-17T08:40:00Z", "mergedAt": None,
+        "additions": 61, "deletions": 9, "checks": "FAILURE", "unresolved": 2,
+    },
+    39: {
+        "title": "[opencode-prs] Fade merged PRs further",
+        "state": "OPEN", "isDraft": True, "reviewDecision": "",
+        "createdAt": "2026-09-17T08:05:00Z", "mergedAt": None,
+        "additions": 12, "deletions": 4, "checks": "IN_PROGRESS", "unresolved": 0,
+    },
+    35: {
+        "title": "[opencode-prs] Refresh PRs faster and update copied reviews",
+        "state": "MERGED", "isDraft": False, "reviewDecision": "APPROVED",
+        "createdAt": "2026-09-16T15:20:00Z", "mergedAt": "2026-09-16T17:02:00Z",
+        "additions": 133, "deletions": 57, "checks": "SUCCESS", "unresolved": 0,
+    },
+}
+
+def rollup(kind):
+    if kind == "IN_PROGRESS":
+        return [{"__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": None, "name": "test"}]
+    return [{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": kind, "name": "test"}]
+
+args = sys.argv[1:]
+if args[:2] == ["pr", "view"]:
+    number = int(re.search(r"/pull/(\d+)", args[2]).group(1))
+    pr = PRS[number]
+    print(json.dumps({
+        "title": pr["title"], "state": pr["state"], "url": args[2], "number": number,
+        "isDraft": pr["isDraft"], "reviewDecision": pr["reviewDecision"],
+        "createdAt": pr["createdAt"], "mergedAt": pr["mergedAt"],
+        "additions": pr["additions"], "deletions": pr["deletions"],
+        "statusCheckRollup": rollup(pr["checks"]),
+    }))
+elif args[:2] == ["api", "graphql"]:
+    number = int(next(a for a in args if a.startswith("number=")).split("=")[1])
+    nodes = [{"isResolved": False}] * PRS[number]["unresolved"]
+    print(json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "nodes": nodes, "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}))
+else:
+    sys.stderr.write(f"fake gh: unsupported {args}\n")
+    sys.exit(1)
