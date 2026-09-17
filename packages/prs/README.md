@@ -3,11 +3,11 @@
 [OpenCode](https://opencode.ai) TUI plugin that lists GitHub pull requests opened by the current session.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../assets/prs-hover-dark-v2.gif">
-  <img src="../../assets/prs-hover-light-v2.gif" alt="Pull request titles scrolling on hover in the OpenCode sidebar" width="640">
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/prs-hover-dark-v3.gif">
+  <img src="../../assets/prs-hover-light-v3.gif" alt="Pull request titles scrolling on hover in the OpenCode sidebar" width="640">
 </picture>
 
-The sidebar section is collapsible. Each pull request uses a full-width linked title with its muted `owner/repository#number` and colored status below. Open pull requests show `✓` when approved or `⏳` while waiting for review. Merged pull requests use subdued colors so open work stays prominent. Hover a clipped title to scroll through its full text once. Select `⧉` to copy a Slack-ready PR summary and confirm it with a toast.
+The sidebar section is collapsible. Each pull request uses a full-width linked title with its muted `repository#number` and colored status below: `approved` or `waiting` for open pull requests, `draft`, or `merged`. Open pull requests also show unresolved review comments and a checks indicator: `✓` passing, `×` failing, `◌` pending. Merged pull requests use subdued colors so open work stays prominent. Hover a clipped title to scroll through its full text once. Click a status line to copy that PR as a Slack-ready summary, or `⧉` in the header to copy the whole list, confirmed with a toast.
 
 ## Install
 

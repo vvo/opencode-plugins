@@ -19,7 +19,10 @@ This repository publishes independent OpenCode TUI plugins from `packages/`.
 ## Screenshots
 
 - Update the light and dark `opencode-prs` screenshots and hover GIFs when its visible output changes.
-- Keep `assets/prs-light.png`, `assets/prs-dark.png`, `assets/prs-hover-light-v2.gif`, and `assets/prs-hover-dark-v2.gif` in sync with the current UI.
+- Keep `assets/prs-light.png`, `assets/prs-dark.png`, `assets/prs-hover-light-v3.gif`, and `assets/prs-hover-dark-v3.gif` in sync with the current UI.
+- Regenerate them with `pnpm build && python3 scripts/screenshots/prs.py`. It needs the OpenCode 2 background service, `tmux`, Google Chrome, `magick`, and `gifsicle`. It imports a fake session, runs the real TUI in tmux with a private `XDG_CONFIG_HOME`, shadows `gh` with `scripts/screenshots/gh` for canned PR data, injects mouse motion for the hover marquee, and renders the captured cells through headless Chrome with IBM Plex Mono. The script docstring has the details.
+- Change the PR mix in `scripts/screenshots/gh` (one PR per visible state, keep it to four rows). Bump `GIF_SUFFIX` in `prs.py` and the README references when the animation changes: GitHub caches GIFs by filename.
+- The cursor in the GIF sits on the lower half of the first title, slightly right of center (`CURSOR` in `prs.py`). Keep it there.
 
 ## Plugin compatibility
 
