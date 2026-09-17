@@ -1,5 +1,16 @@
 # opencode-prs
 
+## 0.3.0
+
+### Minor Changes
+
+- 1ec9492: Show review state as words (waiting, approved), count unresolved review threads and requested changes as comments, mark passing, failing or running checks, copy a pull request by clicking its status line, drop the owner from the sidebar label, sort merged pull requests by merge time, and copy the full list with native Slack and portable bullet formats.
+- c062295: Refresh pull requests every ten seconds on the active tab and use the updated Slack review format when copying a pull request.
+
+### Patch Changes
+
+- e1144dd: Detect pull requests created with `gh api repos/<owner>/<repo>/pulls` (POST), not only `gh pr create`.
+
 ## 0.2.0
 
 ### Minor Changes
