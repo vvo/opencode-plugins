@@ -1,5 +1,11 @@
 # opencode-prs
 
+## 0.3.1
+
+### Patch Changes
+
+- aaae95d: Fade merged pull requests further so open work stands out more.
+
 ## 0.3.0
 
 ### Minor Changes
