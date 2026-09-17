@@ -24,7 +24,7 @@ test("labels pull request states", () => {
 
 test("labels review state with words", () => {
   assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), "approved")
-  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), "changes requested")
+  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), "waiting")
   assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED" }), "waiting")
   assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "" }), "waiting")
   assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: true, reviewDecision: "APPROVED" }), "draft")
@@ -32,10 +32,12 @@ test("labels review state with words", () => {
 })
 
 test("counts unresolved review threads", () => {
-  assert.equal(pullRequestCommentsLabel({ state: "OPEN", unresolvedThreads: 0 }), undefined)
-  assert.equal(pullRequestCommentsLabel({ state: "OPEN", unresolvedThreads: 1 }), "1 comment")
-  assert.equal(pullRequestCommentsLabel({ state: "OPEN", unresolvedThreads: 3 }), "3 comments")
-  assert.equal(pullRequestCommentsLabel({ state: "MERGED", unresolvedThreads: 3 }), undefined)
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", reviewDecision: "APPROVED", unresolvedThreads: 0 }), undefined)
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", reviewDecision: "APPROVED", unresolvedThreads: 1 }), "1 comment")
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", reviewDecision: "REVIEW_REQUIRED", unresolvedThreads: 3 }), "3 comments")
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", reviewDecision: "CHANGES_REQUESTED", unresolvedThreads: 0 }), "1 comment")
+  assert.equal(pullRequestCommentsLabel({ state: "OPEN", reviewDecision: "CHANGES_REQUESTED", unresolvedThreads: 2 }), "2 comments")
+  assert.equal(pullRequestCommentsLabel({ state: "MERGED", reviewDecision: "APPROVED", unresolvedThreads: 3 }), undefined)
 })
 
 test("summarizes status checks", () => {

@@ -40,14 +40,14 @@ export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "
 export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): string {
   const status = pullRequestStatus(pr)
   if (status !== "open") return status
-  if (pr.reviewDecision === "APPROVED") return "approved"
-  if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes requested"
-  return "waiting"
+  return pr.reviewDecision === "APPROVED" ? "approved" : "waiting"
 }
 
-export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "unresolvedThreads">): string | undefined {
-  if (pr.state !== "OPEN" || pr.unresolvedThreads === 0) return undefined
-  return pr.unresolvedThreads === 1 ? "1 comment" : `${pr.unresolvedThreads} comments`
+export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "reviewDecision" | "unresolvedThreads">): string | undefined {
+  if (pr.state !== "OPEN") return undefined
+  const count = Math.max(pr.unresolvedThreads, pr.reviewDecision === "CHANGES_REQUESTED" ? 1 : 0)
+  if (count === 0) return undefined
+  return count === 1 ? "1 comment" : `${count} comments`
 }
 
 export function pullRequestLabel(pr: PullRequestRef): string {

@@ -174,8 +174,7 @@ function PullRequestRow(props: {
   const titleColor = () => merged() ? props.subdued : props.link
   const statusColor = () => {
     if (merged()) return props.subdued
-    if (props.pr.isDraft || props.pr.reviewDecision === "CHANGES_REQUESTED") return props.draft
-    return props.open
+    return props.pr.isDraft ? props.draft : props.open
   }
   return (
     <box
