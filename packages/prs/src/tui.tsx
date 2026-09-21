@@ -304,15 +304,15 @@ async function refsFromV2History(context: Context, sessionID: string): Promise<P
 }
 
 async function sessionCreatedV2(context: Context, sessionID: string): Promise<number | undefined> {
-  const cached = context.data.session.get(sessionID)?.time.created
-  if (cached !== undefined) return cached
-  return context.client.session.get({ sessionID }).then((session) => session.time.created, () => undefined)
+  const created = context.data.session.get(sessionID)?.time.created
+  if (created !== undefined) return created
+  return context.client.session.get({ sessionID }).then((session) => session.time.created).catch(() => undefined)
 }
 
 async function refsFromV1History(api: TuiPluginApi, sessionID: string): Promise<PullRequestRef[]> {
   const [response, sessionCreated] = await Promise.all([
     api.client.session.messages({ sessionID }),
-    api.client.session.get({ sessionID }).then((session) => session.data?.time.created, () => undefined),
+    api.client.session.get({ sessionID }).then((session) => session.data?.time.created).catch(() => undefined),
   ])
   const refs: PullRequestRef[] = []
   for (const item of response.data ?? []) {
