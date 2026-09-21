@@ -148,6 +148,12 @@ export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestR
   return [...new Map([...refs].map((ref) => [ref.url, ref])).values()]
 }
 
+// Forks copy parent messages with their original timestamps, so anything older than the session came from the parent.
+export function predatesSession(message: { time?: { created?: number } }, sessionCreated: number | undefined): boolean {
+  const created = message.time?.created
+  return sessionCreated !== undefined && created !== undefined && created < sessionCreated
+}
+
 export function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`
 }

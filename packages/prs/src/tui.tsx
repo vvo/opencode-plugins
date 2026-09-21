@@ -8,6 +8,7 @@ import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
   marquee,
+  predatesSession,
   pullRequestChecks,
   pullRequestChecksIndicator,
   pullRequestCommentsLabel,
@@ -34,7 +35,7 @@ const MARQUEE_DELAY_MS = 500
 const MARQUEE_STEP_MS = 120
 const MERGED_OPACITY = 0.7
 type Context = Plugin.Context
-type Message = { type?: string; content?: unknown[] }
+type Message = { type?: string; content?: unknown[]; time?: { created?: number } }
 type ShellToolPart = {
   type?: string
   name?: string
@@ -257,10 +258,10 @@ async function fetchUnresolvedThreads(ref: PullRequestRef): Promise<number> {
   return unresolved
 }
 
-function refsFromV2(messages: readonly Message[]): PullRequestRef[] {
+function refsFromV2(messages: readonly Message[], sessionCreated: number | undefined): PullRequestRef[] {
   const refs: PullRequestRef[] = []
   for (const message of messages) {
-    if (message.type !== "assistant") continue
+    if (message.type !== "assistant" || predatesSession(message, sessionCreated)) continue
     for (const content of message.content ?? []) {
       if (!content || typeof content !== "object") continue
       const part = content as ShellToolPart
@@ -273,7 +274,9 @@ function refsFromV2(messages: readonly Message[]): PullRequestRef[] {
 
 function refsFromV1(api: TuiPluginApi, sessionID: string): PullRequestRef[] {
   const refs: PullRequestRef[] = []
+  const sessionCreated = api.state.session.get(sessionID)?.time.created
   for (const message of api.state.session.messages(sessionID)) {
+    if (predatesSession(message, sessionCreated)) continue
     for (const part of api.state.part(message.id)) {
       if (part.type !== "tool" || part.tool !== "shell" || part.state.status !== "completed") continue
       const input = part.state.input as { command?: string }
@@ -284,22 +287,36 @@ function refsFromV1(api: TuiPluginApi, sessionID: string): PullRequestRef[] {
 }
 
 async function refsFromV2History(context: Context, sessionID: string): Promise<PullRequestRef[]> {
+  const sessionCreated = await sessionCreatedV2(context, sessionID)
   const refs: PullRequestRef[] = []
   let cursor: string | undefined
   let page = 0
   do {
-    const response = await context.client.message.list({ sessionID, limit: 200, ...(cursor ? { cursor } : {}) })
-    refs.push(...refsFromV2(response.data as readonly Message[]))
+    const response = await context.client.message.list({ sessionID, limit: 200, ...(cursor ? { cursor } : { order: "desc" }) })
+    const messages = response.data as readonly Message[]
+    refs.push(...refsFromV2(messages, sessionCreated))
+    // Newest first, so once a page reaches inherited messages the rest is the parent's history.
+    if (messages.some((message) => predatesSession(message, sessionCreated))) break
     cursor = response.cursor.next ?? undefined
     page++
   } while (cursor && page < MAX_HISTORY_PAGES)
   return refs
 }
 
+async function sessionCreatedV2(context: Context, sessionID: string): Promise<number | undefined> {
+  const cached = context.data.session.get(sessionID)?.time.created
+  if (cached !== undefined) return cached
+  return context.client.session.get({ sessionID }).then((session) => session.time.created, () => undefined)
+}
+
 async function refsFromV1History(api: TuiPluginApi, sessionID: string): Promise<PullRequestRef[]> {
-  const response = await api.client.session.messages({ sessionID })
+  const [response, sessionCreated] = await Promise.all([
+    api.client.session.messages({ sessionID }),
+    api.client.session.get({ sessionID }).then((session) => session.data?.time.created, () => undefined),
+  ])
   const refs: PullRequestRef[] = []
   for (const item of response.data ?? []) {
+    if (predatesSession(item.info, sessionCreated)) continue
     for (const part of item.parts as ShellToolPart[]) {
       if (part.type !== "tool" || part.tool !== "shell" || part.state?.status !== "completed") continue
       refs.push(...extractCreatedPullRequests(part.state.input?.command ?? "", part.state.output ?? ""))
@@ -432,7 +449,10 @@ function setup(context: Context) {
     render: ({ sessionID }) => (
       <PullRequests
         sessionID={sessionID}
-        refs={() => refsFromV2(context.data.session.message.list(sessionID) as readonly Message[])}
+        refs={() => refsFromV2(
+          context.data.session.message.list(sessionID) as readonly Message[],
+          context.data.session.get(sessionID)?.time.created,
+        )}
         history={() => refsFromV2History(context, sessionID)}
         sync={() => context.data.session.message.sync(sessionID)}
         focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
