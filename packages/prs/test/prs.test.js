@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, predatesSession, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -12,6 +12,14 @@ test("extracts and normalizes GitHub pull request links", () => {
 test("removes duplicate pull requests", () => {
   const refs = extractPullRequests("https://github.com/vvo/repo/pull/1 https://github.com/vvo/repo/pull/1")
   assert.equal(uniquePullRequests(refs).length, 1)
+})
+
+test("flags messages inherited from a forked parent", () => {
+  assert.equal(predatesSession({ time: { created: 999 } }, 1000), true)
+  assert.equal(predatesSession({ time: { created: 1000 } }, 1000), false)
+  assert.equal(predatesSession({ time: { created: 1001 } }, 1000), false)
+  assert.equal(predatesSession({ time: { created: 999 } }, undefined), false)
+  assert.equal(predatesSession({}, 1000), false)
 })
 
 test("truncates long titles", () => assert.equal(truncate("a long title", 8), "a long …"))
