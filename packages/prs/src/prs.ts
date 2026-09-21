@@ -17,7 +17,7 @@ export type StatusCheck = { status?: string | null; conclusion?: string | null; 
 const FAILED_CHECKS = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
 
 export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions"> & {
-  reviewThreads: { nodes: { isResolved: boolean }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
+  reviewThreads: { nodes: { isResolved: boolean }[] }
   commits: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: StatusCheck[] } } | null } }[] }
 }
 
@@ -33,10 +33,11 @@ export type RestPullRequest = {
 
 const PULL_REQUEST_FIELDS = [
   "title state url number isDraft reviewDecision createdAt mergedAt additions deletions",
-  "reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }",
+  "reviewThreads(first: 100) { nodes { isResolved } }",
   "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } }",
 ].join(" ")
 
+// One aliased selection per PR so a session fetches all of them in a single request.
 export function pullRequestsQuery(refs: PullRequestRef[]): string {
   const selections = refs.map((ref, index) => (
     `pr${index}: repository(owner: "${ref.owner}", name: "${ref.repo}") { pullRequest(number: ${ref.number}) { ...fields } }`

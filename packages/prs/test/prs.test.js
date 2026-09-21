@@ -35,7 +35,7 @@ test("builds a pull request from a GraphQL node", () => {
   const pr = pullRequestFromNode(ref, {
     title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED",
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 51, deletions: 9,
-    reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }], pageInfo: { hasNextPage: false, endCursor: null } },
+    reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }] },
     commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ status: "COMPLETED", conclusion: "SUCCESS" }] } } } }] },
   })
   assert.equal(pr.owner, "vvo")
@@ -49,7 +49,7 @@ test("treats a missing check rollup as no checks", () => {
   const node = {
     title: "No checks", state: "OPEN", url: ref.url, number: 42, isDraft: true, reviewDecision: null,
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 1, deletions: 1,
-    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    reviewThreads: { nodes: [] },
     commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
   }
   assert.equal(pullRequestFromNode(ref, node).checks, "none")

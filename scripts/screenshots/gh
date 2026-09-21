@@ -42,8 +42,7 @@ def node(owner, repo, number):
         "isDraft": pr["isDraft"], "reviewDecision": pr["reviewDecision"],
         "createdAt": pr["createdAt"], "mergedAt": pr["mergedAt"],
         "additions": pr["additions"], "deletions": pr["deletions"],
-        "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"],
-                          "pageInfo": {"hasNextPage": False, "endCursor": None}},
+        "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"]},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": rollup(pr["checks"])}}}}]},
     }
 

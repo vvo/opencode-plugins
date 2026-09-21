@@ -230,7 +230,8 @@ function PullRequestRow(props: {
   )
 }
 
-// One GraphQL request for every PR in the session. REST (separate quota, fewer fields) only when GraphQL itself fails.
+type GraphqlData = Record<string, { pullRequest: PullRequestNode | null } | null>
+
 async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]): Promise<(PullRequest | undefined)[]> {
   if (refs.length === 0) return []
   const data = await fetchPullRequestsGraphql(refs)
@@ -240,16 +241,16 @@ async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]):
       return node ? pullRequestFromNode(ref, node) : undefined
     })
   }
+  // REST has its own rate limit, so it still answers when GraphQL is exhausted.
   const previous = new Map(cached.map((pr) => [pr.url, pr]))
   return Promise.all(refs.map((ref) => fetchPullRequestRest(ref, previous.get(ref.url))))
 }
 
-type GraphqlData = Record<string, { pullRequest: PullRequestNode | null } | null>
-
 async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<GraphqlData | undefined> {
   // gh exits non-zero when one alias fails to resolve but still prints the data for the others.
   const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${pullRequestsQuery(refs)}`])
-    .then((result) => result.stdout, (error: { stdout?: string }) => error.stdout ?? "")
+    .then((result) => result.stdout)
+    .catch((error: { stdout?: string }) => error.stdout ?? "")
   try {
     return (JSON.parse(stdout) as { data?: GraphqlData | null }).data ?? undefined
   } catch {
