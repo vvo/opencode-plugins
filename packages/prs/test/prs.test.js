@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, predatesSession, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, marquee, predatesSession, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -20,6 +20,55 @@ test("flags messages inherited from a forked parent", () => {
   assert.equal(predatesSession({ time: { created: 1001 } }, 1000), false)
   assert.equal(predatesSession({ time: { created: 999 } }, undefined), false)
   assert.equal(predatesSession({}, 1000), false)
+})
+
+const ref = { owner: "vvo", repo: "opencode-plugins", number: 42, url: "https://github.com/vvo/opencode-plugins/pull/42" }
+
+test("batches every pull request into one GraphQL query", () => {
+  const query = pullRequestsQuery([ref, { ...ref, owner: "vercel", repo: "api", number: 7 }])
+  assert.match(query, /pr0: repository\(owner: "vvo", name: "opencode-plugins"\) \{ pullRequest\(number: 42\) \{ \.\.\.fields \} \}/)
+  assert.match(query, /pr1: repository\(owner: "vercel", name: "api"\) \{ pullRequest\(number: 7\)/)
+  assert.match(query, /fragment fields on PullRequest \{ title state url number isDraft reviewDecision/)
+})
+
+test("builds a pull request from a GraphQL node", () => {
+  const pr = pullRequestFromNode(ref, {
+    title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED",
+    createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 51, deletions: 9,
+    reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }], pageInfo: { hasNextPage: false, endCursor: null } },
+    commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ status: "COMPLETED", conclusion: "SUCCESS" }] } } } }] },
+  })
+  assert.equal(pr.owner, "vvo")
+  assert.equal(pr.unresolvedThreads, 2)
+  assert.equal(pr.checks, "passing")
+  assert.equal(pr.reviewDecision, "APPROVED")
+  assert.equal("reviewThreads" in pr, false)
+})
+
+test("treats a missing check rollup as no checks", () => {
+  const node = {
+    title: "No checks", state: "OPEN", url: ref.url, number: 42, isDraft: true, reviewDecision: null,
+    createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 1, deletions: 1,
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+  }
+  assert.equal(pullRequestFromNode(ref, node).checks, "none")
+  assert.equal(pullRequestFromNode(ref, { ...node, commits: { nodes: [] } }).checks, "none")
+})
+
+test("builds a pull request from the REST API and keeps cached review data", () => {
+  const rest = { title: "Rest", state: "open", draft: false, created_at: "2026-09-21T14:08:09Z", merged_at: null, additions: 3, deletions: 2 }
+  const fresh = pullRequestFromRest(ref, rest, undefined)
+  assert.equal(fresh.state, "OPEN")
+  assert.equal(fresh.reviewDecision, null)
+  assert.equal(fresh.unresolvedThreads, 0)
+  assert.equal(fresh.checks, "none")
+  const cached = pullRequestFromRest(ref, rest, { ...fresh, reviewDecision: "CHANGES_REQUESTED", unresolvedThreads: 2, checks: "failing" })
+  assert.equal(cached.reviewDecision, "CHANGES_REQUESTED")
+  assert.equal(cached.unresolvedThreads, 2)
+  assert.equal(cached.checks, "failing")
+  assert.equal(pullRequestFromRest(ref, { ...rest, state: "closed", merged_at: "2026-09-21T15:00:00Z" }, undefined).state, "MERGED")
+  assert.equal(pullRequestFromRest(ref, { ...rest, state: "closed" }, undefined).state, "CLOSED")
 })
 
 test("truncates long titles", () => assert.equal(truncate("a long title", 8), "a long …"))

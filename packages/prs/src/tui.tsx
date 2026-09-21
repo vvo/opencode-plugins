@@ -9,11 +9,13 @@ import {
   extractCreatedPullRequests,
   marquee,
   predatesSession,
-  pullRequestChecks,
   pullRequestChecksIndicator,
   pullRequestCommentsLabel,
+  pullRequestFromNode,
+  pullRequestFromRest,
   pullRequestLabel,
   pullRequestStatusLabel,
+  pullRequestsQuery,
   slackPullRequest,
   slackPullRequestHtml,
   slackPullRequests,
@@ -23,12 +25,13 @@ import {
   uniquePullRequests,
   type ChecksIndicator,
   type PullRequest,
+  type PullRequestNode,
   type PullRequestRef,
-  type StatusCheck,
+  type RestPullRequest,
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
-const REFRESH_MS = 10_000
+const REFRESH_MS = 30_000
 const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
@@ -227,35 +230,40 @@ function PullRequestRow(props: {
   )
 }
 
-async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
+// One GraphQL request for every PR in the session. REST (separate quota, fewer fields) only when GraphQL itself fails.
+async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]): Promise<(PullRequest | undefined)[]> {
+  if (refs.length === 0) return []
+  const data = await fetchPullRequestsGraphql(refs)
+  if (data) {
+    return refs.map((ref, index) => {
+      const node = data[`pr${index}`]?.pullRequest
+      return node ? pullRequestFromNode(ref, node) : undefined
+    })
+  }
+  const previous = new Map(cached.map((pr) => [pr.url, pr]))
+  return Promise.all(refs.map((ref) => fetchPullRequestRest(ref, previous.get(ref.url))))
+}
+
+type GraphqlData = Record<string, { pullRequest: PullRequestNode | null } | null>
+
+async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<GraphqlData | undefined> {
+  // gh exits non-zero when one alias fails to resolve but still prints the data for the others.
+  const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${pullRequestsQuery(refs)}`])
+    .then((result) => result.stdout, (error: { stdout?: string }) => error.stdout ?? "")
   try {
-    const [{ stdout }, unresolvedThreads] = await Promise.all([
-      execFileAsync("gh", ["pr", "view", ref.url, "--json", "title,state,url,number,isDraft,reviewDecision,createdAt,mergedAt,additions,deletions,statusCheckRollup"]),
-      fetchUnresolvedThreads(ref),
-    ])
-    const { statusCheckRollup, ...data } = JSON.parse(stdout) as Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions"> & { statusCheckRollup: StatusCheck[] | null }
-    return { ...ref, ...data, unresolvedThreads, checks: pullRequestChecks(statusCheckRollup ?? []) }
+    return (JSON.parse(stdout) as { data?: GraphqlData | null }).data ?? undefined
   } catch {
     return undefined
   }
 }
 
-async function fetchUnresolvedThreads(ref: PullRequestRef): Promise<number> {
-  let unresolved = 0
-  let cursor: string | null = null
-  do {
-    const query = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}`
-    const args = ["api", "graphql", "-f", `query=${query}`, "-F", `owner=${ref.owner}`, "-F", `repo=${ref.repo}`, "-F", `number=${ref.number}`]
-    if (cursor) args.push("-F", `cursor=${cursor}`)
-    const { stdout } = await execFileAsync("gh", args)
-    const response = JSON.parse(stdout) as {
-      data: { repository: { pullRequest: { reviewThreads: { nodes: { isResolved: boolean }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } }
-    }
-    const threads = response.data.repository.pullRequest.reviewThreads
-    unresolved += threads.nodes.filter((thread) => !thread.isResolved).length
-    cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null
-  } while (cursor)
-  return unresolved
+async function fetchPullRequestRest(ref: PullRequestRef, cached: PullRequest | undefined): Promise<PullRequest | undefined> {
+  try {
+    const { stdout } = await execFileAsync("gh", ["api", `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`])
+    return pullRequestFromRest(ref, JSON.parse(stdout) as RestPullRequest, cached)
+  } catch {
+    return undefined
+  }
 }
 
 function refsFromV2(messages: readonly Message[], sessionCreated: number | undefined): PullRequestRef[] {
@@ -360,7 +368,7 @@ function PullRequests(props: {
       if (!force && refsKey === cache.refsKey) return
       force = false
       if (!cache.refreshPromise) {
-        cache.refreshPromise = Promise.all(refs.map(fetchPullRequest)).then((results) => {
+        cache.refreshPromise = fetchPullRequests(refs, cache.prs).then((results) => {
           const failed = refs.length > 0 && results.every((result) => result === undefined)
           if (!failed || cache.prs.length === 0) {
             const next = mergePullRequests(refs, results, cache.prs)
