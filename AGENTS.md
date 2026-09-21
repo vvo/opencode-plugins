@@ -10,7 +10,8 @@ This repository publishes independent OpenCode TUI plugins from `packages/`.
 
 ## Local plugin development
 
-- Run `pnpm dev:link` once from the checkout you are editing. It builds every package before replacing published or previously linked plugin entries in `~/.config/opencode/cli.json`.
+- Vincent tests every change locally. After a plugin change is committed, run `pnpm dev:link` from the checkout you edited, without being asked, and tell him to restart OpenCode. Skip it for docs and tooling only.
+- Run `pnpm dev:link` once from the checkout you are editing. It builds every package before replacing published or previously linked plugin entries in `~/.config/opencode/cli.json`. Running it from a worktree points OpenCode at that worktree's `dist/`.
 - Run `pnpm dev` while editing. It rebuilds `dist/` after source changes.
 - Restart the OpenCode client after each rebuild. OpenCode loads compiled JavaScript from `dist/` and does not hot reload plugins.
 - Run `pnpm dev:unlink` to restore the plugin entries saved by `dev:link`.
