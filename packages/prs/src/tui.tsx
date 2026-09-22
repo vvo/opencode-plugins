@@ -82,6 +82,8 @@ function run() {
   if (payload.slackTexty) pasteboard.setStringForType($(payload.slackTexty), "slack/texty")
 }`
     const osascript = execFileAsync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script])
+    // If osascript exits before reading, the write raises EPIPE on the stream, not on the awaited promise.
+    osascript.child.stdin?.on("error", () => {})
     osascript.child.stdin?.end(JSON.stringify({ plain, html, slackTexty }))
     await osascript
     return true
