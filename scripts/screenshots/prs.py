@@ -137,7 +137,7 @@ def capture_frames(launcher, outdir):
     for _ in range(60):
         time.sleep(0.5)
         rows = plain()
-        if any("PRs (4)" in r for r in rows) and any(LAST_META in r for r in rows):
+        if any("PRs (3)" in r for r in rows) and any(LAST_META in r for r in rows):
             break
     else:
         sys.exit("sidebar did not render, is the background service up and the plugin built?")

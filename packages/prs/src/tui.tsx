@@ -22,7 +22,6 @@ import {
   slackPullRequests,
   slackPullRequestsHtml,
   slackPullRequestsTexty,
-  sortPullRequests,
   uniquePullRequests,
   type ChecksIndicator,
   type PullRequest,
@@ -422,14 +421,14 @@ function PullRequests(props: {
     <box flexDirection="column">
       <box flexDirection="row" gap={1} onMouseUp={() => setOpen((value) => !value)}>
         <text fg={props.foreground}>{open() ? "▼" : "▶"}</text>
-        <text fg={props.foreground}><b>PRs ({prs().length})</b></text>
-        <Show when={prs().length > 0}>
+        <text fg={props.foreground}><b>PRs ({groups().active.length})</b></text>
+        <Show when={groups().active.length > 0}>
           <text
             fg={props.subdued}
             onMouseUp={(event) => {
               event.stopPropagation()
-              const sorted = sortPullRequests(prs())
-              void props.copy(slackPullRequests(sorted), slackPullRequestsHtml(sorted), slackPullRequestsTexty(sorted))
+              const active = groups().active
+              void props.copy(slackPullRequests(active), slackPullRequestsHtml(active), slackPullRequestsTexty(active))
             }}
           >⧉</text>
         </Show>
