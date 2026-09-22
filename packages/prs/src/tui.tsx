@@ -70,23 +70,22 @@ function fade(color: string | RGBA, opacity: number): string | RGBA {
 async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean, slackTexty?: string): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
+    // Payload goes through stdin: osascript parses a leading "- " as an option and dies on argv over about 1 KB.
     const script = `ObjC.import("AppKit")
-function run(argv) {
+function run() {
+  const input = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile
+  const payload = JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding(input, $.NSUTF8StringEncoding)))
   const pasteboard = $.NSPasteboard.generalPasteboard
   pasteboard.clearContents
-  pasteboard.setStringForType($(argv[0]), $.NSPasteboardTypeString)
-  pasteboard.setStringForType($(argv[1]), $.NSPasteboardTypeHTML)
-  if (argv[2]) pasteboard.setStringForType($(argv[2]), "slack/texty")
+  pasteboard.setStringForType($(payload.plain), $.NSPasteboardTypeString)
+  pasteboard.setStringForType($(payload.html), $.NSPasteboardTypeHTML)
+  if (payload.slackTexty) pasteboard.setStringForType($(payload.slackTexty), "slack/texty")
 }`
-    await execFileAsync("/usr/bin/osascript", [
-      "-l",
-      "JavaScript",
-      "-e",
-      script,
-      plain,
-      html,
-      slackTexty ?? "",
-    ])
+    const osascript = execFileAsync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script])
+    // If osascript exits before reading, the write raises EPIPE on the stream, not on the awaited promise.
+    osascript.child.stdin?.on("error", () => {})
+    osascript.child.stdin?.end(JSON.stringify({ plain, html, slackTexty }))
+    await osascript
     return true
   } catch {
     return fallback(plain)
@@ -467,13 +466,13 @@ function setup(context: Context) {
         focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
           tab.sessionID === context.data.session.root(sessionID) && tab.active
         ))}
-        foreground={context.theme.text.default}
-        subdued={context.theme.text.subdued}
+        foreground={context.theme.text.base}
+        subdued={context.theme.text.muted}
         link={context.theme.markdown.link}
-        draft={context.theme.text.feedback.warning.default}
-        open={context.theme.text.feedback.info.default}
-        success={context.theme.text.feedback.success.default}
-        error={context.theme.text.feedback.error.default}
+        draft={context.theme.text.feedback.warning.base}
+        open={context.theme.text.feedback.info.base}
+        success={context.theme.text.feedback.success.base}
+        error={context.theme.text.feedback.error.base}
         copy={async (plain, html, slackTexty) => {
           const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
           context.ui.toast.show({
