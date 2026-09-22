@@ -1,5 +1,12 @@
 # opencode-prs
 
+## 0.5.0
+
+### Minor Changes
+
+- 08e2351: Fold merged pull requests behind a one-line `▸ N merged` summary under the open ones. Click it to expand them. Open and draft PRs keep their two-line rows and are never pushed out of the ten visible rows by merged ones. The header count and the `⧉` copy button cover the open and draft PRs only.
+- 9cdb1ca: Add a pull requests panel on opencode 2. `/prs`, the command palette, or a click on the sidebar `PRs` header opens a pane beside the conversation listing every PR of the session at full width, with failing and running checks by name and a passing count. `j`/`k` move, `enter` opens in the browser, `c` copies for Slack, `C` copies the open ones, `r` refreshes, `f` toggles full screen, `q` closes. The sidebar checks indicator now comes from GitHub's rollup state, which covers every check instead of the first 100.
+
 ## 0.4.1
 
 ### Patch Changes
