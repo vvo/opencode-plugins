@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, marquee, predatesSession, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -158,6 +158,22 @@ test("sorts open, draft, and merged PRs by recency", () => {
     pr(5, "MERGED", false, "2026-09-04T13:00:00Z", "2026-09-04T14:00:00Z"),
   ])
   assert.deepEqual(sorted.map(({ number }) => number), [4, 3, 2, 1, 5])
+})
+
+test("groups merged PRs behind the active ones", () => {
+  const pr = (number, state, isDraft, createdAt, mergedAt = null) => ({
+    owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
+    title: String(number), state, isDraft, reviewDecision: null, unresolvedThreads: 0, checks: "none", createdAt, mergedAt, additions: 4, deletions: 2,
+  })
+  const groups = groupPullRequests([
+    pr(1, "MERGED", false, "2026-09-04T10:00:00Z", "2026-09-05T10:00:00Z"),
+    pr(2, "OPEN", true, "2026-09-04T12:00:00Z"),
+    pr(3, "OPEN", false, "2026-09-04T09:00:00Z"),
+    pr(5, "MERGED", false, "2026-09-04T13:00:00Z", "2026-09-04T14:00:00Z"),
+  ])
+  assert.deepEqual(groups.active.map(({ number }) => number), [3, 2])
+  assert.deepEqual(groups.merged.map(({ number }) => number), [1, 5])
+  assert.deepEqual(groupPullRequests([]), { active: [], merged: [] })
 })
 
 test("formats a PR for Slack", () => {

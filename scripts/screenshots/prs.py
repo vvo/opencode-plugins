@@ -14,19 +14,19 @@ How it works:
    lists four PRs. `scripts/screenshots/gh` shadows the real `gh` on PATH and
    answers the batched GraphQL query with canned data that covers approved +
    checks passing, waiting + comments + checks failing, draft + checks pending,
-   and merged.
+   and merged (folded behind the `▸ 1 merged` line).
 2. Starts `opencode --session ...` inside a detached tmux pane with a private
    XDG_CONFIG_HOME so the theme mode and plugin list do not touch ~/.config.
 3. Captures the pane with `tmux capture-pane -e` (keeps the SGR colors), then
    injects SGR mouse-motion events at the first title so the real hover
    marquee runs, sampling one capture per marquee step.
-4. Renders each capture to a 1280x733 PNG with headless Chrome: IBM Plex Mono
+4. Renders each capture to a 1280px wide PNG with headless Chrome: IBM Plex Mono
    from Google Fonts, 29px cells, 59px lines, panel at (74,73), same geometry
    as the earlier hand-made assets. A cursor SVG is placed on the lower half
    of the first title for the animation frames.
 5. Assembles the GIF: 1.1s rest, 120ms per marquee step, 2.1s rest, plays once.
 
-Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v3.gif.
+Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v4.gif.
 Bump the gif suffix (and the README references) when the animation changes:
 GitHub caches by filename.
 """
@@ -37,7 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ASSETS = os.path.join(ROOT, "assets")
 PLUGIN = os.path.join(ROOT, "packages/prs/dist")
 SESSION = "ses_screenshots0000000000prs"
-GIF_SUFFIX = "v3"
+GIF_SUFFIX = "v4"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 PR_URLS = [  # order of creation, sidebar sorts them itself
@@ -47,14 +47,15 @@ PR_URLS = [  # order of creation, sidebar sorts them itself
     "https://github.com/vvo/opencode-plugins/pull/37",
 ]
 FIRST_TITLE = "[opencode-prs] Show"   # top row after sorting, gets hovered
-LAST_META = "#35 · merged"            # bottom row, proves everything rendered
+LAST_META = "▸ 1 merged"              # bottom row, proves everything rendered
 
 # Render geometry (matches the previous assets)
-COLS, ROWS = 38, 10
+COLS, ROWS = 38, 8
 CELL_W, CELL_H = 29, 59
 PAD_X, PAD_Y = 74, 73
 FONT_PX = 46
 PANEL_W = 1132
+PAGE_H = PAD_Y + ROWS * CELL_H + 70
 CURSOR = (20.4, 1.55)  # cell units from the "▼": lower half of the first title
 CURSOR_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="28" height="42" viewBox="0 0 14 21">
 <path d="M1 1 L1 16 L4.6 12.6 L7.4 19.2 L10 18.1 L7.3 11.6 L12.2 11.6 Z" fill="#fff" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/>
@@ -136,7 +137,7 @@ def capture_frames(launcher, outdir):
     for _ in range(60):
         time.sleep(0.5)
         rows = plain()
-        if any("PRs (4)" in r for r in rows) and any(LAST_META in r for r in rows):
+        if any("PRs (3)" in r for r in rows) and any(LAST_META in r for r in rows):
             break
     else:
         sys.exit("sidebar did not render, is the background service up and the plugin built?")
@@ -223,7 +224,7 @@ def to_html(capture, cursor):
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-html,body{{margin:0;background:{page_bg};width:1280px;height:733px;overflow:hidden}}
+html,body{{margin:0;background:{page_bg};width:1280px;height:{PAGE_H}px;overflow:hidden}}
 #panel{{position:absolute;left:{PAD_X}px;top:{PAD_Y}px;width:{PANEL_W}px;height:{ROWS * CELL_H - 5}px;background:{panel_bg}}}
 pre{{position:absolute;left:{PAD_X + 26}px;top:{PAD_Y - 9}px;margin:0;color:{panel_bg};letter-spacing:{CELL_W - FONT_PX * 0.6}px;
     font:400 {FONT_PX}px/{CELL_H}px 'IBM Plex Mono',monospace;-webkit-font-smoothing:antialiased;white-space:pre}}
@@ -240,7 +241,7 @@ def render(captures, outdir, cursor=None):
         open(page, "w", encoding="utf8").write(to_html(capture, cursor))
         png = os.path.join(outdir, f"{name}.png")
         run(CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--virtual-time-budget=5000",
-            "--force-device-scale-factor=1", "--window-size=1280,733", f"--screenshot={png}", f"file://{page}")
+            "--force-device-scale-factor=1", f"--window-size=1280,{PAGE_H}", f"--screenshot={png}", f"file://{page}")
         pngs.append(png)
     return pngs
 

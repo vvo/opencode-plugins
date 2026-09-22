@@ -130,6 +130,15 @@ export function sortPullRequests(prs: PullRequest[]): PullRequest[] {
   })
 }
 
+/** Sorted PRs split so merged ones can fold behind a one-line summary and never push open work out of view. */
+export function groupPullRequests(prs: PullRequest[]): { active: PullRequest[]; merged: PullRequest[] } {
+  const sorted = sortPullRequests(prs)
+  return {
+    active: sorted.filter((pr) => pr.state !== "MERGED"),
+    merged: sorted.filter((pr) => pr.state === "MERGED"),
+  }
+}
+
 export function slackPullRequest(pr: PullRequest): string {
   return `:pr: *${pr.owner}/${pr.repo}* · <${pr.url}|${pr.title} (#${pr.number})> +${pr.additions}/-${pr.deletions}`
 }

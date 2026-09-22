@@ -7,6 +7,7 @@ import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Plugin } from "plugin-v2/tui"
 import {
   extractCreatedPullRequests,
+  groupPullRequests,
   marquee,
   predatesSession,
   pullRequestChecksIndicator,
@@ -21,7 +22,6 @@ import {
   slackPullRequests,
   slackPullRequestsHtml,
   slackPullRequestsTexty,
-  sortPullRequests,
   uniquePullRequests,
   type ChecksIndicator,
   type PullRequest,
@@ -350,9 +350,24 @@ function PullRequests(props: {
 }) {
   const cache = getSessionCache(props.sessionID)
   const [open, setOpen] = createSignal(true)
+  const [showMerged, setShowMerged] = createSignal(false)
   const [prs, setPrs] = createSignal<PullRequest[]>(cache.prs)
   const [unavailable, setUnavailable] = createSignal(cache.unavailable)
-  const visiblePrs = () => sortPullRequests(prs()).slice(0, MAX_VISIBLE_PRS)
+  const groups = () => groupPullRequests(prs())
+  const activePrs = () => groups().active.slice(0, MAX_VISIBLE_PRS)
+  const mergedPrs = () => groups().merged.slice(0, Math.max(0, MAX_VISIBLE_PRS - activePrs().length))
+  const row = (pr: PullRequest) => (
+    <PullRequestRow
+      pr={pr}
+      subdued={props.subdued}
+      link={props.link}
+      draft={props.draft}
+      open={props.open}
+      success={props.success}
+      error={props.error}
+      copy={props.copy}
+    />
+  )
   let mounted = true
   let focused = props.focused?.() ?? true
   let observedRefsKey = pullRequestRefsKey(props.refs())
@@ -418,14 +433,14 @@ function PullRequests(props: {
     <box flexDirection="column">
       <box flexDirection="row" gap={1} onMouseUp={() => setOpen((value) => !value)}>
         <text fg={props.foreground}>{open() ? "▼" : "▶"}</text>
-        <text fg={props.foreground}><b>PRs ({prs().length})</b></text>
-        <Show when={prs().length > 0}>
+        <text fg={props.foreground}><b>PRs ({groups().active.length})</b></text>
+        <Show when={groups().active.length > 0}>
           <text
             fg={props.subdued}
             onMouseUp={(event) => {
               event.stopPropagation()
-              const sorted = sortPullRequests(prs())
-              void props.copy(slackPullRequests(sorted), slackPullRequestsHtml(sorted), slackPullRequestsTexty(sorted))
+              const active = groups().active
+              void props.copy(slackPullRequests(active), slackPullRequestsHtml(active), slackPullRequestsTexty(active))
             }}
           >⧉</text>
         </Show>
@@ -433,18 +448,13 @@ function PullRequests(props: {
       <Show when={open()}>
         <Show when={unavailable()}><text fg={props.subdued}>GitHub unavailable</text></Show>
         <Show when={!unavailable() && prs().length === 0}><text fg={props.subdued}>No PRs</text></Show>
-        <For each={visiblePrs()}>{(pr) => (
-          <PullRequestRow
-            pr={pr}
-            subdued={props.subdued}
-            link={props.link}
-            draft={props.draft}
-            open={props.open}
-            success={props.success}
-            error={props.error}
-            copy={props.copy}
-          />
-        )}</For>
+        <For each={activePrs()}>{row}</For>
+        <Show when={groups().merged.length > 0}>
+          <box flexDirection="row" onMouseUp={() => setShowMerged((value) => !value)}>
+            <text fg={fade(props.subdued, MERGED_OPACITY)}>{showMerged() ? "▾" : "▸"} {groups().merged.length} merged</text>
+          </box>
+          <Show when={showMerged()}><For each={mergedPrs()}>{row}</For></Show>
+        </Show>
       </Show>
     </box>
   )
