@@ -5,16 +5,17 @@
     python3 scripts/screenshots/prs.py            # both themes
     python3 scripts/screenshots/prs.py dark       # one theme
 
-Needs: opencode2 (background service running), tmux, Google Chrome, ImageMagick
+Needs: opencode 2 (background service running), tmux, Google Chrome, ImageMagick
 (`magick`), gifsicle. Python 3 standard library only.
 
 How it works:
-1. Imports a fake session whose transcript contains four `gh pr create` shell
-   calls, so the sidebar lists four PRs. `scripts/screenshots/gh` shadows the
-   real `gh` on PATH and answers `gh pr view` / GraphQL with canned data that
-   covers approved + checks passing, waiting + comments + checks failing,
-   draft + checks pending, and merged.
-2. Starts `opencode2 --session ...` inside a detached tmux pane with a private
+1. Imports a fake session through `POST /api/experimental/session/import`
+   whose transcript contains four `gh pr create` shell calls, so the sidebar
+   lists four PRs. `scripts/screenshots/gh` shadows the real `gh` on PATH and
+   answers the batched GraphQL query with canned data that covers approved +
+   checks passing, waiting + comments + checks failing, draft + checks pending,
+   and merged.
+2. Starts `opencode --session ...` inside a detached tmux pane with a private
    XDG_CONFIG_HOME so the theme mode and plugin list do not touch ~/.config.
 3. Captures the pane with `tmux capture-pane -e` (keeps the SGR colors), then
    injects SGR mouse-motion events at the first title so the real hover
@@ -72,6 +73,10 @@ def tmux(*args):
     return run(*TMUX, *args)
 
 
+def delete_session():
+    subprocess.run(["opencode", "api", "delete", f"/api/session/{SESSION}"], capture_output=True)
+
+
 def import_session(work):
     base = int(time.time() * 1000)
     messages = [{"id": "msg_screenshots000000000000u", "time": {"created": base}, "text": "Open the PRs",
@@ -97,10 +102,8 @@ def import_session(work):
                     "outcome": "succeeded", "time": {"created": base, "updated": base},
                     "title": "opencode-prs screenshots", "location": {"directory": work}},
            "messages": messages}
-    path = os.path.join(work, "session.json")
-    json.dump(doc, open(path, "w"), indent=1)
-    subprocess.run(["opencode2", "api", "delete", f"/api/session/{SESSION}"], capture_output=True)
-    run("opencode2", "import", "--directory", work, path)
+    delete_session()
+    run("opencode", "api", "post", "/api/experimental/session/import", "--data", json.dumps(doc))
 
 
 def write_launcher(work, mode):
@@ -118,7 +121,7 @@ def write_launcher(work, mode):
 export PATH="{HERE}:$PATH"
 export XDG_CONFIG_HOME="{os.path.join(work, 'xdg')}"
 cd "{work}"
-exec opencode2 --session {SESSION}
+exec opencode --session {SESSION}
 """)
     os.chmod(launcher, 0o755)
     return launcher
@@ -270,7 +273,7 @@ def main():
     import_session(work)
     for mode in modes:
         build(mode, work)
-    subprocess.run(["opencode2", "api", "delete", f"/api/session/{SESSION}"], capture_output=True)
+    delete_session()
 
 
 if __name__ == "__main__":
