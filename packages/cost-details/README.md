@@ -22,6 +22,12 @@ current $0.12, previous $0.31
 
 Useful to spot when a single question burns way more money than expected.
 
+On opencode 2 the home screen footer also shows the day's total across every session, next to the MCP indicator:
+
+```
+⊙ 3 MCP /mcps  $608.29 today                          2.0.14
+```
+
 Works on both opencode 1 and opencode 2 from the same version.
 
 ## Install
@@ -59,6 +65,8 @@ The plugin renders the sidebar Context section itself: the same tokens, percent 
 A turn starts at every user message. Costs come from the TUI's own message state, which updates live while the agent works. Because that state only keeps the most recent messages (20 on opencode 2), the plugin also backfills the last two turns from the server on first render of a session, and fetches subagent sessions with their costs.
 
 Subagent spend is followed through `session.usage.updated` on opencode 2 and `session.updated` on opencode 1.
+
+The footer total comes from the server's `session/stats` endpoint, asked for sessions created since local midnight in your time zone. It refreshes three seconds after the last `session.usage.updated` event, so it follows spend across every open session without polling. opencode 1 has no home footer slot, so the total is opencode 2 only.
 
 ### One package, both hosts
 

@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { createSignal, type Accessor } from "solid-js"
+import { createSignal, onCleanup, Show, type Accessor } from "solid-js"
 import {
   computeContext,
   computeTurns,
@@ -27,6 +27,8 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const BACKFILL_PAGE = 200
 const BACKFILL_PAGES = 50
 const BACKFILL_TURNS = 2
+/** Usage events arrive per step; the footer total waits for a quiet moment before asking again. */
+const TODAY_DEBOUNCE_MS = 3_000
 
 type Tracker = {
   /** Turns the host's own (short) message window has dropped. */
@@ -220,10 +222,39 @@ function setup(context: Context) {
     },
   })
 
+  // Home has no session, so the footer shows the day's total instead.
+  const unfooter = context.ui.slot({
+    append: "home.footer.status",
+    render: () => <TodayCost context={context} />,
+  })
+
   return () => {
     unsubscribe()
     unslot()
+    unfooter()
   }
+}
+
+function TodayCost(props: { context: Context }) {
+  const [today, setToday] = createSignal<number>()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const refresh = () => {
+    const from = new Date().setHours(0, 0, 0, 0)
+    props.context.client.session
+      .stats({ from, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, tools: "none" })
+      .then((stats) => setToday(stats.cost))
+      .catch(() => undefined)
+  }
+  refresh()
+  const unsubscribe = props.context.data.on("session.usage.updated", () => {
+    clearTimeout(timer)
+    timer = setTimeout(refresh, TODAY_DEBOUNCE_MS)
+  })
+  onCleanup(() => {
+    clearTimeout(timer)
+    unsubscribe()
+  })
+  return <Show when={today() !== undefined}><text fg={props.context.theme.text.muted}>{money.format(today()!)} today</text></Show>
 }
 
 // ---------------------------------------------------------------------------
