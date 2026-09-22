@@ -1,5 +1,12 @@
 # opencode-prs
 
+## 0.4.1
+
+### Patch Changes
+
+- 6d5d6d2: Fix the copy buttons pasting plain `*bold*` and `<url|text>` markup into Slack. The clipboard payload now reaches `osascript` through stdin: passed as arguments, a list starting with `- ` was read as a command line option and anything over about 1 KB killed the process, so the copy silently fell back to plain text.
+- 6d5d6d2: Render again on OpenCode 2.0.12 and later. The theme renamed `text.default` to `text.base`, `text.subdued` to `text.muted` and `feedback.*.default` to `feedback.*.base`; the old tokens resolved to `undefined`, which drew every plugin line in white.
+
 ## 0.4.0
 
 ### Minor Changes
