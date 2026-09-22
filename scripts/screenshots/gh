@@ -30,12 +30,14 @@ PRS = {
 }
 
 def rollup(kind):
+    """GitHub's per-state counts for one check named `test`, plus the suite that names it when it needs attention."""
     if kind == "IN_PROGRESS":
-        return [{"status": "IN_PROGRESS", "conclusion": None}]
-    return [{"status": "COMPLETED", "conclusion": kind}]
+        return {"state": "PENDING", "run_state": "IN_PROGRESS", "failing": [], "running": ["test"]}
+    return {"state": kind, "run_state": kind, "failing": ["test"] if kind == "FAILURE" else [], "running": []}
 
 def node(owner, repo, number):
     pr = PRS[number]
+    checks = rollup(pr["checks"])
     return {
         "title": pr["title"], "state": pr["state"], "number": number,
         "url": f"https://github.com/{owner}/{repo}/pull/{number}",
@@ -43,7 +45,12 @@ def node(owner, repo, number):
         "createdAt": pr["createdAt"], "mergedAt": pr["mergedAt"],
         "additions": pr["additions"], "deletions": pr["deletions"],
         "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"]},
-        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": rollup(pr["checks"])}}}}]},
+        "commits": {"nodes": [{"commit": {
+            "statusCheckRollup": {"state": checks["state"], "contexts": {
+                "totalCount": 1, "checkRunCountsByState": [{"state": checks["run_state"], "count": 1}], "statusContextCountsByState": []}},
+            "checkSuites": {"nodes": [{"failing": {"nodes": [{"name": n} for n in checks["failing"]]},
+                                       "running": {"nodes": [{"name": n} for n in checks["running"]]}}]},
+        }}]},
     }
 
 args = sys.argv[1:]

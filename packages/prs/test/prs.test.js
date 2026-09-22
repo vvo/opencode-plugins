@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecks, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -23,6 +23,16 @@ test("flags messages inherited from a forked parent", () => {
 })
 
 const ref = { owner: "vvo", repo: "opencode-plugins", number: 42, url: "https://github.com/vvo/opencode-plugins/pull/42" }
+const counts = (entries) => Object.entries(entries).map(([state, count]) => ({ state, count }))
+const rollup = (state, runs, statuses = {}) => ({
+  state,
+  contexts: {
+    totalCount: Object.values(runs).reduce((a, b) => a + b, 0) + Object.values(statuses).reduce((a, b) => a + b, 0),
+    checkRunCountsByState: counts(runs),
+    statusContextCountsByState: counts(statuses),
+  },
+})
+const suite = (failing = [], running = []) => ({ failing: { nodes: failing.map((name) => ({ name })) }, running: { nodes: running.map((name) => ({ name })) } })
 
 test("batches every pull request into one GraphQL query", () => {
   const query = pullRequestsQuery([ref, { ...ref, owner: "vercel", repo: "api", number: 7 }])
@@ -36,13 +46,39 @@ test("builds a pull request from a GraphQL node", () => {
     title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED",
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 51, deletions: 9,
     reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }] },
-    commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ status: "COMPLETED", conclusion: "SUCCESS" }] } } } }] },
+    commits: { nodes: [{ commit: { statusCheckRollup: rollup("SUCCESS", { SUCCESS: 1 }), checkSuites: { nodes: [suite()] } } }] },
   })
   assert.equal(pr.owner, "vvo")
   assert.equal(pr.unresolvedThreads, 2)
   assert.equal(pr.checks, "passing")
   assert.equal(pr.reviewDecision, "APPROVED")
   assert.equal("reviewThreads" in pr, false)
+  assert.equal("commits" in pr, false)
+})
+
+test("summarizes checks from GitHub's counts, naming only what needs attention", () => {
+  const pr = pullRequestFromNode(ref, {
+    title: "Checks", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: null,
+    createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 1, deletions: 1,
+    reviewThreads: { nodes: [] },
+    commits: { nodes: [{ commit: {
+      statusCheckRollup: rollup("FAILURE", { SUCCESS: 391, SKIPPED: 56, FAILURE: 7, IN_PROGRESS: 2, QUEUED: 1 }, { SUCCESS: 4 }),
+      checkSuites: { nodes: [suite(["Test / iam (shard: 3/4)", "Test / observability"], ["Test / growth"]), suite(["Test / hive"])] },
+    } }] },
+  })
+  assert.equal(pr.checks, "failing")
+  assert.deepEqual(pr.checkSummary, {
+    failing: ["Test / iam (shard: 3/4)", "Test / observability", "Test / hive", "4 more"],
+    running: ["Test / growth", "2 more"],
+    passing: 395,
+    skipped: 56,
+    total: 461,
+  })
+})
+
+test("counts a pending legacy status even though it has no name", () => {
+  assert.deepEqual(summarizeChecks(rollup("PENDING", { SUCCESS: 2 }, { PENDING: 1 }), []), { failing: [], running: ["1 more"], passing: 2, skipped: 0, total: 3 })
+  assert.deepEqual(summarizeChecks(null, []), { failing: [], running: [], passing: 0, skipped: 0, total: 0 })
 })
 
 test("treats a missing check rollup as no checks", () => {
@@ -50,10 +86,11 @@ test("treats a missing check rollup as no checks", () => {
     title: "No checks", state: "OPEN", url: ref.url, number: 42, isDraft: true, reviewDecision: null,
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 1, deletions: 1,
     reviewThreads: { nodes: [] },
-    commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+    commits: { nodes: [{ commit: { statusCheckRollup: null, checkSuites: { nodes: [] } } }] },
   }
   assert.equal(pullRequestFromNode(ref, node).checks, "none")
   assert.equal(pullRequestFromNode(ref, { ...node, commits: { nodes: [] } }).checks, "none")
+  assert.equal(pullRequestFromNode(ref, node).checkSummary.total, 0)
 })
 
 test("builds a pull request from the REST API and keeps cached review data", () => {
@@ -97,13 +134,7 @@ test("counts unresolved review threads", () => {
   assert.equal(pullRequestCommentsLabel({ state: "MERGED", reviewDecision: "APPROVED", unresolvedThreads: 3 }), undefined)
 })
 
-test("summarizes status checks", () => {
-  assert.equal(pullRequestChecks([]), "none")
-  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "COMPLETED", conclusion: "SKIPPED" }, { state: "SUCCESS" }]), "passing")
-  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "COMPLETED", conclusion: "FAILURE" }]), "failing")
-  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "IN_PROGRESS", conclusion: null }]), "pending")
-  assert.equal(pullRequestChecks([{ state: "PENDING" }]), "pending")
-  assert.equal(pullRequestChecks([{ status: "COMPLETED", conclusion: "SKIPPED" }]), "none")
+test("maps the checks rollup to an indicator", () => {
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing" }), "✓")
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "failing" }), "×")
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "pending" }), "◌")
