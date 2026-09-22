@@ -70,23 +70,20 @@ function fade(color: string | RGBA, opacity: number): string | RGBA {
 async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean, slackTexty?: string): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
+    // Payload goes through stdin: osascript parses a leading "- " as an option and dies on argv over about 1 KB.
     const script = `ObjC.import("AppKit")
-function run(argv) {
+function run() {
+  const input = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile
+  const payload = JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding(input, $.NSUTF8StringEncoding)))
   const pasteboard = $.NSPasteboard.generalPasteboard
   pasteboard.clearContents
-  pasteboard.setStringForType($(argv[0]), $.NSPasteboardTypeString)
-  pasteboard.setStringForType($(argv[1]), $.NSPasteboardTypeHTML)
-  if (argv[2]) pasteboard.setStringForType($(argv[2]), "slack/texty")
+  pasteboard.setStringForType($(payload.plain), $.NSPasteboardTypeString)
+  pasteboard.setStringForType($(payload.html), $.NSPasteboardTypeHTML)
+  if (payload.slackTexty) pasteboard.setStringForType($(payload.slackTexty), "slack/texty")
 }`
-    await execFileAsync("/usr/bin/osascript", [
-      "-l",
-      "JavaScript",
-      "-e",
-      script,
-      plain,
-      html,
-      slackTexty ?? "",
-    ])
+    const osascript = execFileAsync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script])
+    osascript.child.stdin?.end(JSON.stringify({ plain, html, slackTexty }))
+    await osascript
     return true
   } catch {
     return fallback(plain)
