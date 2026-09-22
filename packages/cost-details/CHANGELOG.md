@@ -1,5 +1,11 @@
 # opencode-cost-details
 
+## 0.4.1
+
+### Patch Changes
+
+- 6d5d6d2: Render again on OpenCode 2.0.12 and later. The theme renamed `text.default` to `text.base`, `text.subdued` to `text.muted` and `feedback.*.default` to `feedback.*.base`; the old tokens resolved to `undefined`, which drew every plugin line in white.
+
 ## 0.4.0
 
 ### Minor Changes
