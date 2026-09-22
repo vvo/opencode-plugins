@@ -493,17 +493,22 @@ function PullRequestPanel(props: {
   const theme = props.context.theme
   const cache = getSessionCache(props.panel.sessionID)
   const prs = () => sortPullRequests(cache.view().prs)
+  const active = () => groupPullRequests(cache.view().prs).active
   const [cursor, setCursor] = createSignal(0)
   const selected = () => prs()[Math.min(cursor(), Math.max(0, prs().length - 1))]
   const move = (delta: number) => setCursor((value) => Math.max(0, Math.min(prs().length - 1, value + delta)))
+  const openSelected = () => {
+    const pr = selected()
+    if (pr) openInBrowser(pr.url)
+  }
   const copySelected = () => {
     const pr = selected()
     if (pr) void props.copy(slackPullRequest(pr), slackPullRequestHtml(pr))
   }
-  const copyAll = () => {
-    const active = groupPullRequests(cache.view().prs).active
-    if (active.length > 0) void props.copy(slackPullRequests(active), slackPullRequestsHtml(active), slackPullRequestsTexty(active))
+  const copyActive = () => {
+    if (active().length > 0) void props.copy(slackPullRequests(active()), slackPullRequestsHtml(active()), slackPullRequestsTexty(active()))
   }
+  // Clearing the refs key makes the sidebar's next refs effect run a full refresh.
   const refresh = () => {
     cache.refsKey = ""
     props.context.data.session.message.invalidate(props.panel.sessionID)
@@ -516,10 +521,10 @@ function PullRequestPanel(props: {
       { bind: "down", run: () => move(1) },
       { bind: "k", run: () => move(-1) },
       { bind: "up", run: () => move(-1) },
-      { bind: "enter", run: () => { const pr = selected(); if (pr) openInBrowser(pr.url) } },
-      { bind: "o", run: () => { const pr = selected(); if (pr) openInBrowser(pr.url) } },
+      { bind: "enter", run: openSelected },
+      { bind: "o", run: openSelected },
       { bind: "c", run: copySelected },
-      { bind: "shift+c", run: copyAll },
+      { bind: "shift+c", run: copyActive },
       { bind: "r", run: refresh },
       { bind: "f", run: props.panel.toggleFullscreen },
       { bind: "q", run: props.panel.close },
@@ -530,7 +535,7 @@ function PullRequestPanel(props: {
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background.base}>
       <box flexDirection="row" paddingLeft={1} paddingRight={1} height={1} flexShrink={0} gap={1}>
-        <text fg={theme.text.base} flexGrow={1} wrapMode="none"><b>PRs ({groupPullRequests(cache.view().prs).active.length})</b></text>
+        <text fg={theme.text.base} flexGrow={1} wrapMode="none"><b>PRs ({active().length})</b></text>
         <text fg={theme.text.muted} flexShrink={0} wrapMode="none">j/k move · enter open · c copy · C copy all · r refresh · f full · q close</text>
       </box>
       <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1}>
@@ -576,14 +581,16 @@ function PanelRow(props: {
     const label = pullRequestCommentsLabel(props.pr)
     return label ? ` · ${label}` : ""
   }
-  const marker = () => props.selected() ? (props.focused() ? "▶" : "▷") : " "
-  const background = () => props.selected() ? theme.background.raised.base : undefined
+  const marker = () => {
+    if (!props.selected()) return " "
+    return props.focused() ? "▶" : "▷"
+  }
   return (
     <box
       flexDirection="column"
       minWidth={0}
       marginBottom={1}
-      backgroundColor={background()}
+      backgroundColor={props.selected() ? theme.background.raised.base : undefined}
       onMouseUp={props.onSelect}
     >
       <box flexDirection="row" minWidth={0} gap={1}>
@@ -617,39 +624,39 @@ function PanelRow(props: {
 
 function setup(context: Context) {
   if (typeof context.ui?.slot !== "function") return
-  const unpanel = typeof context.ui.panel?.open === "function"
-    ? context.ui.slot({
-        append: "session.panel",
-        render: (panel) => (
-          <Show when={panel.name === PANEL_NAME}>
-            <PullRequestPanel context={context} panel={panel} copy={(plain, html, slackTexty) => copyWithToast(context, plain, html, slackTexty)} />
-          </Show>
-        ),
-      })
-    : undefined
-  const uncommands = typeof context.keymap?.layer === "function"
-    ? context.ui.slot({
-        append: "app",
-        render: () => {
-          context.keymap.layer(() => ({
-            mode: "global",
-            commands: [{
-              id: "opencode-prs.panel.open",
-              title: "Open pull requests panel",
-              group: "Pull requests",
-              palette: true,
-              slash: { name: "prs" },
-              enabled: () => typeof context.ui.panel?.open === "function",
-              run: () => {
-                if (!context.ui.panel.open(PANEL_NAME)) context.ui.toast.show({ message: "Open a session to list its PRs", variant: "warning" })
-              },
-            }],
-          }))
-          return null
-        },
-      })
-    : undefined
-  const unsidebar = context.ui.slot({
+  const cleanups: (() => void)[] = []
+  // Panels and keymap layers arrived together in opencode 2.0.12; older hosts keep the sidebar only.
+  const panels = typeof context.ui.panel?.open === "function" && typeof context.keymap?.layer === "function"
+  if (panels) {
+    cleanups.push(context.ui.slot({
+      append: "session.panel",
+      render: (panel) => (
+        <Show when={panel.name === PANEL_NAME}>
+          <PullRequestPanel context={context} panel={panel} copy={(plain, html, slackTexty) => copyWithToast(context, plain, html, slackTexty)} />
+        </Show>
+      ),
+    }))
+    cleanups.push(context.ui.slot({
+      append: "app",
+      render: () => {
+        context.keymap.layer(() => ({
+          mode: "global",
+          commands: [{
+            id: "opencode-prs.panel.open",
+            title: "Open pull requests panel",
+            group: "Pull requests",
+            palette: true,
+            slash: { name: "prs" },
+            run: () => {
+              if (!context.ui.panel.open(PANEL_NAME)) context.ui.toast.show({ message: "Open a session to list its PRs", variant: "warning" })
+            },
+          }],
+        }))
+        return null
+      },
+    }))
+  }
+  cleanups.push(context.ui.slot({
     append: "sidebar.content",
     render: ({ sessionID }) => (
       <PullRequests
@@ -671,15 +678,11 @@ function setup(context: Context) {
         success={context.theme.text.feedback.success.base}
         error={context.theme.text.feedback.error.base}
         copy={(plain, html, slackTexty) => copyWithToast(context, plain, html, slackTexty)}
-        onHeaderClick={unpanel ? () => { context.ui.panel.open(PANEL_NAME) } : undefined}
+        onHeaderClick={panels ? () => { context.ui.panel.open(PANEL_NAME) } : undefined}
       />
     ),
-  })
-  return () => {
-    unsidebar()
-    uncommands?.()
-    unpanel?.()
-  }
+  }))
+  return () => cleanups.forEach((cleanup) => cleanup())
 }
 
 async function copyWithToast(context: Context, plain: string, html: string, slackTexty?: string): Promise<boolean> {

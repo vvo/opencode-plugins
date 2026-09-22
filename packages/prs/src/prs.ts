@@ -59,20 +59,23 @@ const RUNNING_STATES = ["QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTE
 export function summarizeChecks(rollup: StatusCheckRollup | null | undefined, suites: CheckSuiteNode[]): CheckSummary {
   if (!rollup) return EMPTY_CHECKS
   const counts = [...rollup.contexts.checkRunCountsByState, ...rollup.contexts.statusContextCountsByState]
-  const sum = (states: string[]) => counts.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
-  const failing = suites.flatMap((suite) => suite.failing.nodes.map((run) => run.name))
-  const running = suites.flatMap((suite) => suite.running.nodes.map((run) => run.name))
-  const total = rollup.contexts.totalCount
-  // Legacy status contexts have no name list, so a failing or pending one shows up in the count only.
-  const unnamedFailing = sum(FAILED_STATES) - failing.length
-  const unnamedRunning = sum(RUNNING_STATES) - running.length
+  const count = (states: string[]) => counts.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
+  const failed = count(FAILED_STATES)
+  const running = count(RUNNING_STATES)
+  const passing = count(PASSED_STATES)
   return {
-    failing: unnamedFailing > 0 ? [...failing, `${unnamedFailing} more`] : failing,
-    running: unnamedRunning > 0 ? [...running, `${unnamedRunning} more`] : running,
-    passing: sum(PASSED_STATES),
-    skipped: total - sum(FAILED_STATES) - sum(RUNNING_STATES) - sum(PASSED_STATES),
-    total,
+    failing: withUnnamed(suites.flatMap((suite) => suite.failing.nodes.map((run) => run.name)), failed),
+    running: withUnnamed(suites.flatMap((suite) => suite.running.nodes.map((run) => run.name)), running),
+    passing,
+    skipped: rollup.contexts.totalCount - failed - running - passing,
+    total: rollup.contexts.totalCount,
   }
+}
+
+// Legacy status contexts have no name list, so a failing or pending one shows up in the count only.
+function withUnnamed(names: string[], total: number): string[] {
+  const unnamed = total - names.length
+  return unnamed > 0 ? [...names, `${unnamed} more`] : names
 }
 
 export type RestPullRequest = {
