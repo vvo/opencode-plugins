@@ -5,6 +5,7 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show, type Accesso
 import type { RGBA } from "@opentui/core"
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Plugin } from "plugin-v2/tui"
+import type { PanelInput } from "plugin-v2/tui/context"
 import {
   extractCreatedPullRequests,
   groupPullRequests,
@@ -22,7 +23,9 @@ import {
   slackPullRequests,
   slackPullRequestsHtml,
   slackPullRequestsTexty,
+  sortPullRequests,
   uniquePullRequests,
+  type CheckSummary,
   type ChecksIndicator,
   type PullRequest,
   type PullRequestNode,
@@ -37,6 +40,7 @@ const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
 const MARQUEE_STEP_MS = 120
 const MERGED_OPACITY = 0.7
+const PANEL_NAME = "opencode-prs.panel"
 type Context = Plugin.Context
 type Message = { type?: string; content?: unknown[]; time?: { created?: number } }
 type ShellToolPart = {
@@ -57,6 +61,9 @@ type SessionCache = {
   refsKey: string
   unavailable: boolean
   refreshPromise?: Promise<void>
+  /** Reactive copy of `prs` and `unavailable`, shared by the sidebar and the panel. */
+  view: Accessor<{ prs: PullRequest[]; unavailable: boolean }>
+  setView: (view: { prs: PullRequest[]; unavailable: boolean }) => void
 }
 
 const sessionCache = new Map<string, SessionCache>()
@@ -95,7 +102,8 @@ function run() {
 function getSessionCache(sessionID: string): SessionCache {
   let cache = sessionCache.get(sessionID)
   if (!cache) {
-    cache = { history: [], prs: [], refsKey: "", unavailable: false }
+    const [view, setView] = createSignal({ prs: [] as PullRequest[], unavailable: false })
+    cache = { history: [], prs: [], refsKey: "", unavailable: false, view, setView }
     sessionCache.set(sessionID, cache)
   }
   return cache
@@ -110,6 +118,7 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.reviewDecision === right.reviewDecision &&
     left.unresolvedThreads === right.unresolvedThreads &&
     left.checks === right.checks &&
+    sameCheckSummary(left.checkSummary, right.checkSummary) &&
     left.createdAt === right.createdAt &&
     left.mergedAt === right.mergedAt &&
     left.additions === right.additions &&
@@ -119,6 +128,16 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
 
 function pullRequestRefsKey(refs: Iterable<PullRequestRef>): string {
   return uniquePullRequests(refs).map((ref) => ref.url).join("\n")
+}
+
+function sameCheckSummary(left: CheckSummary, right: CheckSummary): boolean {
+  return (
+    left.passing === right.passing &&
+    left.skipped === right.skipped &&
+    left.total === right.total &&
+    left.failing.join("\n") === right.failing.join("\n") &&
+    left.running.join("\n") === right.running.join("\n")
+  )
 }
 
 function mergePullRequests(
@@ -347,12 +366,14 @@ function PullRequests(props: {
   success: string | RGBA
   error: string | RGBA
   copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
+  /** opencode 2 only: the header opens the panel instead of folding the section. */
+  onHeaderClick?: () => void
 }) {
   const cache = getSessionCache(props.sessionID)
   const [open, setOpen] = createSignal(true)
   const [showMerged, setShowMerged] = createSignal(false)
-  const [prs, setPrs] = createSignal<PullRequest[]>(cache.prs)
-  const [unavailable, setUnavailable] = createSignal(cache.unavailable)
+  const prs = () => cache.view().prs
+  const unavailable = () => cache.view().unavailable
   const groups = () => groupPullRequests(prs())
   const activePrs = () => groups().active.slice(0, MAX_VISIBLE_PRS)
   const mergedPrs = () => groups().merged.slice(0, Math.max(0, MAX_VISIBLE_PRS - activePrs().length))
@@ -373,8 +394,7 @@ function PullRequests(props: {
   let observedRefsKey = pullRequestRefsKey(props.refs())
   const showCache = () => {
     if (!mounted) return
-    setPrs(cache.prs)
-    setUnavailable(cache.unavailable)
+    cache.setView({ prs: cache.prs, unavailable: cache.unavailable })
   }
   const refresh = async (force = false) => {
     while (mounted) {
@@ -431,8 +451,8 @@ function PullRequests(props: {
   })
   return (
     <box flexDirection="column">
-      <box flexDirection="row" gap={1} onMouseUp={() => setOpen((value) => !value)}>
-        <text fg={props.foreground}>{open() ? "▼" : "▶"}</text>
+      <box flexDirection="row" gap={1} onMouseUp={() => (props.onHeaderClick ?? (() => setOpen((value) => !value)))()}>
+        <text fg={props.foreground} onMouseUp={(event) => { event.stopPropagation(); setOpen((value) => !value) }}>{open() ? "▼" : "▶"}</text>
         <text fg={props.foreground}><b>PRs ({groups().active.length})</b></text>
         <Show when={groups().active.length > 0}>
           <text
@@ -460,9 +480,183 @@ function PullRequests(props: {
   )
 }
 
+function openInBrowser(url: string): void {
+  const opener = process.platform === "darwin" ? "open" : "xdg-open"
+  execFile(opener, [url], () => undefined)
+}
+
+function PullRequestPanel(props: {
+  context: Context
+  panel: PanelInput
+  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
+}) {
+  const theme = props.context.theme
+  const cache = getSessionCache(props.panel.sessionID)
+  const prs = () => sortPullRequests(cache.view().prs)
+  const active = () => groupPullRequests(cache.view().prs).active
+  const [cursor, setCursor] = createSignal(0)
+  const selected = () => prs()[Math.min(cursor(), Math.max(0, prs().length - 1))]
+  const move = (delta: number) => setCursor((value) => Math.max(0, Math.min(prs().length - 1, value + delta)))
+  const openSelected = () => {
+    const pr = selected()
+    if (pr) openInBrowser(pr.url)
+  }
+  const copySelected = () => {
+    const pr = selected()
+    if (pr) void props.copy(slackPullRequest(pr), slackPullRequestHtml(pr))
+  }
+  const copyActive = () => {
+    if (active().length > 0) void props.copy(slackPullRequests(active()), slackPullRequestsHtml(active()), slackPullRequestsTexty(active()))
+  }
+  // Clearing the refs key makes the sidebar's next refs effect run a full refresh.
+  const refresh = () => {
+    cache.refsKey = ""
+    props.context.data.session.message.invalidate(props.panel.sessionID)
+  }
+
+  props.context.keymap.layer(() => ({
+    enabled: () => props.panel.focused,
+    commands: [
+      { bind: "j", run: () => move(1) },
+      { bind: "down", run: () => move(1) },
+      { bind: "k", run: () => move(-1) },
+      { bind: "up", run: () => move(-1) },
+      { bind: "enter", run: openSelected },
+      { bind: "o", run: openSelected },
+      { bind: "c", run: copySelected },
+      { bind: "shift+c", run: copyActive },
+      { bind: "r", run: refresh },
+      { bind: "f", run: props.panel.toggleFullscreen },
+      { bind: "q", run: props.panel.close },
+      { bind: "escape", run: props.panel.close },
+    ],
+  }))
+
+  return (
+    <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background.base}>
+      <box flexDirection="row" paddingLeft={1} paddingRight={1} height={1} flexShrink={0} gap={1}>
+        <text fg={theme.text.base} flexGrow={1} wrapMode="none"><b>PRs ({active().length})</b></text>
+        <text fg={theme.text.muted} flexShrink={0} wrapMode="none">j/k move · enter open · c copy · C copy all · r refresh · f full · q close</text>
+      </box>
+      <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1}>
+        <Show when={cache.view().unavailable}><text fg={theme.text.muted}>GitHub unavailable</text></Show>
+        <Show when={!cache.view().unavailable && prs().length === 0}><text fg={theme.text.muted}>No PRs</text></Show>
+        <For each={prs()}>{(pr, index) => (
+          <PanelRow
+            pr={pr}
+            selected={() => index() === cursor()}
+            focused={() => props.panel.focused}
+            onSelect={() => { setCursor(index()); props.panel.focus() }}
+            onOpen={() => openInBrowser(pr.url)}
+            context={props.context}
+          />
+        )}</For>
+      </scrollbox>
+    </box>
+  )
+}
+
+function PanelRow(props: {
+  pr: PullRequest
+  selected: Accessor<boolean>
+  focused: Accessor<boolean>
+  onSelect: () => void
+  onOpen: () => void
+  context: Context
+}) {
+  const theme = props.context.theme
+  const merged = () => props.pr.state === "MERGED"
+  const subdued = () => merged() ? fade(theme.text.muted, MERGED_OPACITY) : theme.text.muted
+  const statusColor = () => {
+    if (merged()) return subdued()
+    return props.pr.isDraft ? theme.text.feedback.warning.base : theme.text.feedback.info.base
+  }
+  const checksLine = () => {
+    const summary = props.pr.checkSummary
+    const parts = [`${summary.passing} passing`]
+    if (summary.skipped > 0) parts.push(`${summary.skipped} skipped`)
+    return `${parts.join(", ")} of ${summary.total}`
+  }
+  const commentsSuffix = () => {
+    const label = pullRequestCommentsLabel(props.pr)
+    return label ? ` · ${label}` : ""
+  }
+  const marker = () => {
+    if (!props.selected()) return " "
+    return props.focused() ? "▶" : "▷"
+  }
+  return (
+    <box
+      flexDirection="column"
+      minWidth={0}
+      marginBottom={1}
+      backgroundColor={props.selected() ? theme.background.raised.base : undefined}
+      onMouseUp={props.onSelect}
+    >
+      <box flexDirection="row" minWidth={0} gap={1}>
+        <text fg={theme.text.base} flexShrink={0}>{marker()}</text>
+        <text fg={merged() ? subdued() : theme.markdown.link} flexGrow={1} minWidth={0} wrapMode="word" onMouseUp={(event) => { event.stopPropagation(); props.onSelect(); props.onOpen() }}>
+          <a href={props.pr.url}>{props.pr.title}</a>
+        </text>
+      </box>
+      <box flexDirection="row" marginLeft={2} minWidth={0}>
+        <text fg={subdued()} wrapMode="none">
+          {pullRequestLabel(props.pr)}
+          <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
+          {commentsSuffix()}
+          {` · +${props.pr.additions}/-${props.pr.deletions}`}
+        </text>
+      </box>
+      <Show when={props.pr.state === "OPEN" && props.pr.checkSummary.total > 0}>
+        <box flexDirection="column" marginLeft={2} minWidth={0}>
+          <For each={props.pr.checkSummary.failing}>{(name) => (
+            <text fg={theme.text.feedback.error.base} wrapMode="none">× {name}</text>
+          )}</For>
+          <For each={props.pr.checkSummary.running}>{(name) => (
+            <text fg={theme.text.muted} wrapMode="none">◌ {name}</text>
+          )}</For>
+          <text fg={theme.text.muted} wrapMode="none"><span style={{ fg: theme.text.feedback.success.base }}>✓</span> {checksLine()}</text>
+        </box>
+      </Show>
+    </box>
+  )
+}
+
 function setup(context: Context) {
   if (typeof context.ui?.slot !== "function") return
-  return context.ui.slot({
+  const cleanups: (() => void)[] = []
+  // Panels and keymap layers arrived together in opencode 2.0.12; older hosts keep the sidebar only.
+  const panels = typeof context.ui.panel?.open === "function" && typeof context.keymap?.layer === "function"
+  if (panels) {
+    cleanups.push(context.ui.slot({
+      append: "session.panel",
+      render: (panel) => (
+        <Show when={panel.name === PANEL_NAME}>
+          <PullRequestPanel context={context} panel={panel} copy={(plain, html, slackTexty) => copyWithToast(context, plain, html, slackTexty)} />
+        </Show>
+      ),
+    }))
+    cleanups.push(context.ui.slot({
+      append: "app",
+      render: () => {
+        context.keymap.layer(() => ({
+          mode: "global",
+          commands: [{
+            id: "opencode-prs.panel.open",
+            title: "Open pull requests panel",
+            group: "Pull requests",
+            palette: true,
+            slash: { name: "prs" },
+            run: () => {
+              if (!context.ui.panel.open(PANEL_NAME)) context.ui.toast.show({ message: "Open a session to list its PRs", variant: "warning" })
+            },
+          }],
+        }))
+        return null
+      },
+    }))
+  }
+  cleanups.push(context.ui.slot({
     append: "sidebar.content",
     render: ({ sessionID }) => (
       <PullRequests
@@ -483,17 +677,21 @@ function setup(context: Context) {
         open={context.theme.text.feedback.info.base}
         success={context.theme.text.feedback.success.base}
         error={context.theme.text.feedback.error.base}
-        copy={async (plain, html, slackTexty) => {
-          const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
-          context.ui.toast.show({
-            message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
-            variant: copied ? "success" : "error",
-          })
-          return copied
-        }}
+        copy={(plain, html, slackTexty) => copyWithToast(context, plain, html, slackTexty)}
+        onHeaderClick={panels ? () => { context.ui.panel.open(PANEL_NAME) } : undefined}
       />
     ),
+  }))
+  return () => cleanups.forEach((cleanup) => cleanup())
+}
+
+async function copyWithToast(context: Context, plain: string, html: string, slackTexty?: string): Promise<boolean> {
+  const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
+  context.ui.toast.show({
+    message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
+    variant: copied ? "success" : "error",
   })
+  return copied
 }
 
 const tui: TuiPlugin = async (api) => {

@@ -6,19 +6,76 @@ export type PullRequest = PullRequestRef & {
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | "" | null
   unresolvedThreads: number
   checks: "passing" | "failing" | "pending" | "none"
+  /** Checks on the head commit, for the panel. The sidebar only reads `checks`. */
+  checkSummary: CheckSummary
   createdAt: string
   mergedAt: string | null
   additions: number
   deletions: number
 }
 
-export type StatusCheck = { status?: string | null; conclusion?: string | null; state?: string | null }
+/** Names for what needs attention, counts for the rest: a vercel/api PR runs 460 checks. */
+export type CheckSummary = {
+  failing: string[]
+  running: string[]
+  passing: number
+  skipped: number
+  total: number
+}
 
-const FAILED_CHECKS = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
+export const EMPTY_CHECKS: CheckSummary = { failing: [], running: [], passing: 0, skipped: 0, total: 0 }
+
+export type RollupState = "SUCCESS" | "FAILURE" | "ERROR" | "PENDING" | "EXPECTED"
+
+type StateCount = { state: string; count: number }
+
+export type StatusCheckRollup = {
+  state: RollupState
+  contexts: { totalCount: number; checkRunCountsByState: StateCount[]; statusContextCountsByState: StateCount[] }
+}
+
+export type CheckSuiteNode = {
+  failing: { nodes: { name: string }[] }
+  running: { nodes: { name: string }[] }
+}
 
 export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions"> & {
   reviewThreads: { nodes: { isResolved: boolean }[] }
-  commits: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: StatusCheck[] } } | null } }[] }
+  commits: { nodes: { commit: { statusCheckRollup: StatusCheckRollup | null; checkSuites: { nodes: CheckSuiteNode[] } } }[] }
+}
+
+/** GitHub's own verdict over every check, not just the ones we list. */
+export function rollupChecks(state: RollupState | undefined): PullRequest["checks"] {
+  if (state === "FAILURE" || state === "ERROR") return "failing"
+  if (state === "PENDING" || state === "EXPECTED") return "pending"
+  if (state === "SUCCESS") return "passing"
+  return "none"
+}
+
+const FAILED_STATES = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
+const PASSED_STATES = ["SUCCESS"]
+const RUNNING_STATES = ["QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "EXPECTED"]
+
+export function summarizeChecks(rollup: StatusCheckRollup | null | undefined, suites: CheckSuiteNode[]): CheckSummary {
+  if (!rollup) return EMPTY_CHECKS
+  const counts = [...rollup.contexts.checkRunCountsByState, ...rollup.contexts.statusContextCountsByState]
+  const count = (states: string[]) => counts.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
+  const failed = count(FAILED_STATES)
+  const running = count(RUNNING_STATES)
+  const passing = count(PASSED_STATES)
+  return {
+    failing: withUnnamed(suites.flatMap((suite) => suite.failing.nodes.map((run) => run.name)), failed),
+    running: withUnnamed(suites.flatMap((suite) => suite.running.nodes.map((run) => run.name)), running),
+    passing,
+    skipped: rollup.contexts.totalCount - failed - running - passing,
+    total: rollup.contexts.totalCount,
+  }
+}
+
+// Legacy status contexts have no name list, so a failing or pending one shows up in the count only.
+function withUnnamed(names: string[], total: number): string[] {
+  const unnamed = total - names.length
+  return unnamed > 0 ? [...names, `${unnamed} more`] : names
 }
 
 export type RestPullRequest = {
@@ -34,7 +91,12 @@ export type RestPullRequest = {
 const PULL_REQUEST_FIELDS = [
   "title state url number isDraft reviewDecision createdAt mergedAt additions deletions",
   "reviewThreads(first: 100) { nodes { isResolved } }",
-  "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } }",
+  "commits(last: 1) { nodes { commit {",
+  "statusCheckRollup { state contexts(first: 1) { totalCount checkRunCountsByState { state count } statusContextCountsByState { state count } } }",
+  "checkSuites(first: 100) { nodes {",
+  "failing: checkRuns(first: 20, filterBy: { checkType: LATEST, conclusions: [FAILURE, TIMED_OUT, CANCELLED, ACTION_REQUIRED, STARTUP_FAILURE] }) { nodes { name } }",
+  "running: checkRuns(first: 20, filterBy: { checkType: LATEST, status: IN_PROGRESS }) { nodes { name } }",
+  "} } } } }",
 ].join(" ")
 
 // One aliased selection per PR so a session fetches all of them in a single request.
@@ -47,12 +109,13 @@ export function pullRequestsQuery(refs: PullRequestRef[]): string {
 
 export function pullRequestFromNode(ref: PullRequestRef, node: PullRequestNode): PullRequest {
   const { reviewThreads, commits, ...fields } = node
-  const contexts = commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []
+  const commit = commits.nodes[0]?.commit
   return {
     ...ref,
     ...fields,
     unresolvedThreads: reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
-    checks: pullRequestChecks(contexts),
+    checks: rollupChecks(commit?.statusCheckRollup?.state),
+    checkSummary: summarizeChecks(commit?.statusCheckRollup, commit?.checkSuites.nodes ?? []),
   }
 }
 
@@ -75,19 +138,11 @@ export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, 
     reviewDecision: cached?.reviewDecision ?? null,
     unresolvedThreads: cached?.unresolvedThreads ?? 0,
     checks: cached?.checks ?? "none",
+    checkSummary: cached?.checkSummary ?? EMPTY_CHECKS,
   }
 }
 
-export function pullRequestChecks(checks: StatusCheck[]): PullRequest["checks"] {
-  const results = checks.map((check) => check.conclusion ?? check.state ?? "")
-  if (results.some((result) => FAILED_CHECKS.includes(result))) return "failing"
-  if (checks.some((check) => check.status && check.status !== "COMPLETED") || results.includes("PENDING") || results.includes("EXPECTED")) return "pending"
-  if (results.includes("SUCCESS")) return "passing"
-  return "none"
-}
-
 export type ChecksIndicator = "✓" | "×" | "◌"
-
 export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): ChecksIndicator | undefined {
   if (pr.state !== "OPEN") return undefined
   if (pr.checks === "passing") return "✓"
