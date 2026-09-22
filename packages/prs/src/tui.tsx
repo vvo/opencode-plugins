@@ -356,6 +356,18 @@ function PullRequests(props: {
   const groups = () => groupPullRequests(prs())
   const activePrs = () => groups().active.slice(0, MAX_VISIBLE_PRS)
   const mergedPrs = () => groups().merged.slice(0, Math.max(0, MAX_VISIBLE_PRS - activePrs().length))
+  const row = (pr: PullRequest) => (
+    <PullRequestRow
+      pr={pr}
+      subdued={props.subdued}
+      link={props.link}
+      draft={props.draft}
+      open={props.open}
+      success={props.success}
+      error={props.error}
+      copy={props.copy}
+    />
+  )
   let mounted = true
   let focused = props.focused?.() ?? true
   let observedRefsKey = pullRequestRefsKey(props.refs())
@@ -436,36 +448,12 @@ function PullRequests(props: {
       <Show when={open()}>
         <Show when={unavailable()}><text fg={props.subdued}>GitHub unavailable</text></Show>
         <Show when={!unavailable() && prs().length === 0}><text fg={props.subdued}>No PRs</text></Show>
-        <For each={activePrs()}>{(pr) => (
-          <PullRequestRow
-            pr={pr}
-            subdued={props.subdued}
-            link={props.link}
-            draft={props.draft}
-            open={props.open}
-            success={props.success}
-            error={props.error}
-            copy={props.copy}
-          />
-        )}</For>
+        <For each={activePrs()}>{row}</For>
         <Show when={groups().merged.length > 0}>
           <box flexDirection="row" onMouseUp={() => setShowMerged((value) => !value)}>
             <text fg={fade(props.subdued, MERGED_OPACITY)}>{showMerged() ? "▾" : "▸"} {groups().merged.length} merged</text>
           </box>
-          <Show when={showMerged()}>
-            <For each={mergedPrs()}>{(pr) => (
-              <PullRequestRow
-                pr={pr}
-                subdued={props.subdued}
-                link={props.link}
-                draft={props.draft}
-                open={props.open}
-                success={props.success}
-                error={props.error}
-                copy={props.copy}
-              />
-            )}</For>
-          </Show>
+          <Show when={showMerged()}><For each={mergedPrs()}>{row}</For></Show>
         </Show>
       </Show>
     </box>
