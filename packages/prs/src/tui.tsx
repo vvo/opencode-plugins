@@ -466,13 +466,13 @@ function setup(context: Context) {
         focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
           tab.sessionID === context.data.session.root(sessionID) && tab.active
         ))}
-        foreground={context.theme.text.default}
-        subdued={context.theme.text.subdued}
+        foreground={context.theme.text.base}
+        subdued={context.theme.text.muted}
         link={context.theme.markdown.link}
-        draft={context.theme.text.feedback.warning.default}
-        open={context.theme.text.feedback.info.default}
-        success={context.theme.text.feedback.success.default}
-        error={context.theme.text.feedback.error.default}
+        draft={context.theme.text.feedback.warning.base}
+        open={context.theme.text.feedback.info.base}
+        success={context.theme.text.feedback.success.base}
+        error={context.theme.text.feedback.error.base}
         copy={async (plain, html, slackTexty) => {
           const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
           context.ui.toast.show({

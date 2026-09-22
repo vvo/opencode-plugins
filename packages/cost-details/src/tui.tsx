@@ -213,8 +213,8 @@ function setup(context: Context) {
           context={size}
           spent={spent}
           turns={turns}
-          fg={context.theme.text.subdued}
-          headerFg={context.theme.text.default}
+          fg={context.theme.text.muted}
+          headerFg={context.theme.text.base}
         />
       )
     },
