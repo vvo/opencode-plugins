@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fake gh for screenshots: canned answers for `gh pr view` and the reviewThreads GraphQL query."""
+"""Fake gh for screenshots: canned answers for the batched pull request GraphQL query and its REST fallback."""
 import json, re, sys
 
 PRS = {
@@ -31,25 +31,35 @@ PRS = {
 
 def rollup(kind):
     if kind == "IN_PROGRESS":
-        return [{"__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": None, "name": "test"}]
-    return [{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": kind, "name": "test"}]
+        return [{"status": "IN_PROGRESS", "conclusion": None}]
+    return [{"status": "COMPLETED", "conclusion": kind}]
 
-args = sys.argv[1:]
-if args[:2] == ["pr", "view"]:
-    number = int(re.search(r"/pull/(\d+)", args[2]).group(1))
+def node(owner, repo, number):
     pr = PRS[number]
-    print(json.dumps({
-        "title": pr["title"], "state": pr["state"], "url": args[2], "number": number,
+    return {
+        "title": pr["title"], "state": pr["state"], "number": number,
+        "url": f"https://github.com/{owner}/{repo}/pull/{number}",
         "isDraft": pr["isDraft"], "reviewDecision": pr["reviewDecision"],
         "createdAt": pr["createdAt"], "mergedAt": pr["mergedAt"],
         "additions": pr["additions"], "deletions": pr["deletions"],
-        "statusCheckRollup": rollup(pr["checks"]),
+        "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"]},
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": rollup(pr["checks"])}}}}]},
+    }
+
+args = sys.argv[1:]
+if args[:2] == ["api", "graphql"]:
+    query = next(a for a in args if a.startswith("query=")).removeprefix("query=")
+    aliases = re.findall(r'(pr\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\) \{ pullRequest\(number: (\d+)\)', query)
+    data = {alias: {"pullRequest": node(owner, repo, int(number))} for alias, owner, repo, number in aliases}
+    print(json.dumps({"data": data}))
+elif args[:1] == ["api"] and re.fullmatch(r"repos/[^/]+/[^/]+/pulls/\d+", args[1]):
+    number = int(args[1].rsplit("/", 1)[1])
+    pr = PRS[number]
+    print(json.dumps({
+        "title": pr["title"], "state": "open" if pr["state"] == "OPEN" else "closed",
+        "draft": pr["isDraft"], "created_at": pr["createdAt"], "merged_at": pr["mergedAt"],
+        "additions": pr["additions"], "deletions": pr["deletions"],
     }))
-elif args[:2] == ["api", "graphql"]:
-    number = int(next(a for a in args if a.startswith("number=")).split("=")[1])
-    nodes = [{"isResolved": False}] * PRS[number]["unresolved"]
-    print(json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": {
-        "nodes": nodes, "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}))
 else:
     sys.stderr.write(f"fake gh: unsupported {args}\n")
     sys.exit(1)

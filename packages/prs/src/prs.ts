@@ -16,6 +16,68 @@ export type StatusCheck = { status?: string | null; conclusion?: string | null; 
 
 const FAILED_CHECKS = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
 
+export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "createdAt" | "mergedAt" | "additions" | "deletions"> & {
+  reviewThreads: { nodes: { isResolved: boolean }[] }
+  commits: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: StatusCheck[] } } | null } }[] }
+}
+
+export type RestPullRequest = {
+  title: string
+  state: "open" | "closed"
+  draft: boolean
+  created_at: string
+  merged_at: string | null
+  additions: number
+  deletions: number
+}
+
+const PULL_REQUEST_FIELDS = [
+  "title state url number isDraft reviewDecision createdAt mergedAt additions deletions",
+  "reviewThreads(first: 100) { nodes { isResolved } }",
+  "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } }",
+].join(" ")
+
+// One aliased selection per PR so a session fetches all of them in a single request.
+export function pullRequestsQuery(refs: PullRequestRef[]): string {
+  const selections = refs.map((ref, index) => (
+    `pr${index}: repository(owner: "${ref.owner}", name: "${ref.repo}") { pullRequest(number: ${ref.number}) { ...fields } }`
+  ))
+  return `query { ${selections.join(" ")} } fragment fields on PullRequest { ${PULL_REQUEST_FIELDS} }`
+}
+
+export function pullRequestFromNode(ref: PullRequestRef, node: PullRequestNode): PullRequest {
+  const { reviewThreads, commits, ...fields } = node
+  const contexts = commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []
+  return {
+    ...ref,
+    ...fields,
+    unresolvedThreads: reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
+    checks: pullRequestChecks(contexts),
+  }
+}
+
+function restState(data: RestPullRequest): PullRequest["state"] {
+  if (data.merged_at) return "MERGED"
+  return data.state === "open" ? "OPEN" : "CLOSED"
+}
+
+// REST has no review decision, thread resolution or check rollup, so those keep their last GraphQL values.
+export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, cached: PullRequest | undefined): PullRequest {
+  return {
+    ...ref,
+    title: data.title,
+    state: restState(data),
+    isDraft: data.draft,
+    createdAt: data.created_at,
+    mergedAt: data.merged_at,
+    additions: data.additions,
+    deletions: data.deletions,
+    reviewDecision: cached?.reviewDecision ?? null,
+    unresolvedThreads: cached?.unresolvedThreads ?? 0,
+    checks: cached?.checks ?? "none",
+  }
+}
+
 export function pullRequestChecks(checks: StatusCheck[]): PullRequest["checks"] {
   const results = checks.map((check) => check.conclusion ?? check.state ?? "")
   if (results.some((result) => FAILED_CHECKS.includes(result))) return "failing"
