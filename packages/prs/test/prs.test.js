@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestStatusNeedsAttention, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -38,12 +38,12 @@ test("batches every pull request into one GraphQL query", () => {
   const query = pullRequestsQuery([ref, { ...ref, owner: "vercel", repo: "api", number: 7 }])
   assert.match(query, /pr0: repository\(owner: "vvo", name: "opencode-plugins"\) \{ pullRequest\(number: 42\) \{ \.\.\.fields \} \}/)
   assert.match(query, /pr1: repository\(owner: "vercel", name: "api"\) \{ pullRequest\(number: 7\)/)
-  assert.match(query, /fragment fields on PullRequest \{ title state url number isDraft reviewDecision/)
+  assert.match(query, /fragment fields on PullRequest \{ title state url number isDraft reviewDecision mergeStateStatus/)
 })
 
 test("builds a pull request from a GraphQL node", () => {
   const pr = pullRequestFromNode(ref, {
-    title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED",
+    title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "BLOCKED",
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 51, deletions: 9,
     reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }] },
     commits: { nodes: [{ commit: { statusCheckRollup: rollup("SUCCESS", { SUCCESS: 1 }), checkSuites: { nodes: [suite()] } } }] },
@@ -52,6 +52,8 @@ test("builds a pull request from a GraphQL node", () => {
   assert.equal(pr.unresolvedThreads, 2)
   assert.equal(pr.checks, "passing")
   assert.equal(pr.reviewDecision, "APPROVED")
+  assert.equal(pr.mergeStateStatus, "BLOCKED")
+  assert.equal(pullRequestStatusLabel(pr), "approved · blocked")
   assert.equal("reviewThreads" in pr, false)
   assert.equal("commits" in pr, false)
 })
@@ -98,10 +100,12 @@ test("builds a pull request from the REST API and keeps cached review data", () 
   const fresh = pullRequestFromRest(ref, rest, undefined)
   assert.equal(fresh.state, "OPEN")
   assert.equal(fresh.reviewDecision, null)
+  assert.equal(fresh.mergeStateStatus, null)
   assert.equal(fresh.unresolvedThreads, 0)
   assert.equal(fresh.checks, "none")
-  const cached = pullRequestFromRest(ref, rest, { ...fresh, reviewDecision: "CHANGES_REQUESTED", unresolvedThreads: 2, checks: "failing" })
-  assert.equal(cached.reviewDecision, "CHANGES_REQUESTED")
+  const cached = pullRequestFromRest(ref, rest, { ...fresh, reviewDecision: "APPROVED", mergeStateStatus: "BLOCKED", unresolvedThreads: 2, checks: "failing" })
+  assert.equal(cached.reviewDecision, "APPROVED")
+  assert.equal(cached.mergeStateStatus, "BLOCKED")
   assert.equal(cached.unresolvedThreads, 2)
   assert.equal(cached.checks, "failing")
   assert.equal(pullRequestFromRest(ref, { ...rest, state: "closed", merged_at: "2026-09-21T15:00:00Z" }, undefined).state, "MERGED")
@@ -117,12 +121,28 @@ test("labels pull request states", () => {
 })
 
 test("labels review state with words", () => {
-  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "APPROVED" }), "approved")
-  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "CHANGES_REQUESTED" }), "waiting")
-  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "REVIEW_REQUIRED" }), "waiting")
-  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: false, reviewDecision: "" }), "waiting")
-  assert.equal(pullRequestStatusLabel({ state: "OPEN", isDraft: true, reviewDecision: "APPROVED" }), "draft")
-  assert.equal(pullRequestStatusLabel({ state: "MERGED", isDraft: false, reviewDecision: "APPROVED" }), "merged")
+  const label = (state, isDraft, reviewDecision, mergeStateStatus, checks = "passing") => pullRequestStatusLabel({ state, isDraft, reviewDecision, mergeStateStatus, checks })
+  assert.equal(label("OPEN", false, "APPROVED", "CLEAN"), "approved")
+  assert.equal(label("OPEN", false, "APPROVED", "BLOCKED"), "approved · blocked")
+  assert.equal(label("OPEN", false, "APPROVED", "BLOCKED", "pending"), "approved · blocked")
+  assert.equal(label("OPEN", false, "APPROVED", "UNKNOWN", "pending"), "approved · pending")
+  assert.equal(label("OPEN", false, "APPROVED", "UNSTABLE", "pending"), "approved · pending")
+  assert.equal(label("OPEN", false, "APPROVED", "UNSTABLE", "failing"), "approved")
+  assert.equal(label("OPEN", false, "APPROVED", null), "approved")
+  assert.equal(label("OPEN", false, "CHANGES_REQUESTED", "BLOCKED"), "waiting")
+  assert.equal(label("OPEN", false, "REVIEW_REQUIRED", "BLOCKED"), "waiting")
+  assert.equal(label("OPEN", false, "", "CLEAN"), "waiting")
+  assert.equal(label("OPEN", true, "APPROVED", "BLOCKED"), "draft")
+  assert.equal(label("MERGED", false, "APPROVED", "BLOCKED"), "merged")
+})
+
+test("colors approved PRs that still need attention", () => {
+  const needsAttention = (isDraft, reviewDecision, mergeStateStatus, checks) => pullRequestStatusNeedsAttention({ isDraft, reviewDecision, mergeStateStatus, checks })
+  assert.equal(needsAttention(false, "APPROVED", "BLOCKED", "passing"), true)
+  assert.equal(needsAttention(false, "APPROVED", "UNKNOWN", "pending"), true)
+  assert.equal(needsAttention(false, "APPROVED", "CLEAN", "passing"), false)
+  assert.equal(needsAttention(false, "REVIEW_REQUIRED", "BLOCKED", "pending"), false)
+  assert.equal(needsAttention(true, "APPROVED", "UNKNOWN", "none"), true)
 })
 
 test("counts unresolved review threads", () => {
