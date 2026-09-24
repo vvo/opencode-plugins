@@ -5,25 +5,25 @@ import json, re, sys
 PRS = {
     37: {
         "title": "[opencode-prs] Show review state, comments and checks per PR",
-        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED",
+        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "CLEAN",
         "createdAt": "2026-09-17T09:12:00Z", "mergedAt": None,
         "additions": 214, "deletions": 38, "checks": "SUCCESS", "unresolved": 0,
     },
     212: {
         "title": "Update time zone database to 2026b",
-        "state": "OPEN", "isDraft": False, "reviewDecision": "CHANGES_REQUESTED",
+        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "BLOCKED",
         "createdAt": "2026-09-17T08:40:00Z", "mergedAt": None,
-        "additions": 61, "deletions": 9, "checks": "FAILURE", "unresolved": 2,
+        "additions": 61, "deletions": 9, "checks": "SUCCESS", "unresolved": 0,
     },
     39: {
-        "title": "[opencode-prs] Fade merged PRs further",
-        "state": "OPEN", "isDraft": True, "reviewDecision": "",
+        "title": "Update the package publishing workflow",
+        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "UNKNOWN",
         "createdAt": "2026-09-17T08:05:00Z", "mergedAt": None,
         "additions": 12, "deletions": 4, "checks": "IN_PROGRESS", "unresolved": 0,
     },
     35: {
         "title": "[opencode-prs] Refresh PRs faster and update copied reviews",
-        "state": "MERGED", "isDraft": False, "reviewDecision": "APPROVED",
+        "state": "MERGED", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "CLEAN",
         "createdAt": "2026-09-16T15:20:00Z", "mergedAt": "2026-09-16T17:02:00Z",
         "additions": 133, "deletions": 57, "checks": "SUCCESS", "unresolved": 0,
     },
@@ -41,7 +41,7 @@ def node(owner, repo, number):
     return {
         "title": pr["title"], "state": pr["state"], "number": number,
         "url": f"https://github.com/{owner}/{repo}/pull/{number}",
-        "isDraft": pr["isDraft"], "reviewDecision": pr["reviewDecision"],
+        "isDraft": pr["isDraft"], "reviewDecision": pr["reviewDecision"], "mergeStateStatus": pr["mergeStateStatus"],
         "createdAt": pr["createdAt"], "mergedAt": pr["mergedAt"],
         "additions": pr["additions"], "deletions": pr["deletions"],
         "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"]},

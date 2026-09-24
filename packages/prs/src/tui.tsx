@@ -17,6 +17,7 @@ import {
   pullRequestFromRest,
   pullRequestLabel,
   pullRequestStatusLabel,
+  pullRequestStatusIsWarning,
   pullRequestsQuery,
   slackPullRequest,
   slackPullRequestHtml,
@@ -116,6 +117,7 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.state === right.state &&
     left.isDraft === right.isDraft &&
     left.reviewDecision === right.reviewDecision &&
+    left.mergeStateStatus === right.mergeStateStatus &&
     left.unresolvedThreads === right.unresolvedThreads &&
     left.checks === right.checks &&
     sameCheckSummary(left.checkSummary, right.checkSummary) &&
@@ -205,7 +207,7 @@ function PullRequestRow(props: {
   const titleColor = () => merged() ? subdued() : props.link
   const statusColor = () => {
     if (merged()) return subdued()
-    return props.pr.isDraft ? props.draft : props.open
+    return pullRequestStatusIsWarning(props.pr) ? props.draft : props.open
   }
   const checksColor = (indicator: ChecksIndicator) => {
     if (indicator === "✓") return props.success
@@ -569,7 +571,7 @@ function PanelRow(props: {
   const subdued = () => merged() ? fade(theme.text.muted, MERGED_OPACITY) : theme.text.muted
   const statusColor = () => {
     if (merged()) return subdued()
-    return props.pr.isDraft ? theme.text.feedback.warning.base : theme.text.feedback.info.base
+    return pullRequestStatusIsWarning(props.pr) ? theme.text.feedback.warning.base : theme.text.feedback.info.base
   }
   const checksLine = () => {
     const summary = props.pr.checkSummary

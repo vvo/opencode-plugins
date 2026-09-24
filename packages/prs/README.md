@@ -3,11 +3,11 @@
 [OpenCode](https://opencode.ai) TUI plugin that lists GitHub pull requests opened by the current session.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../assets/prs-hover-dark-v4.gif">
-  <img src="../../assets/prs-hover-light-v4.gif" alt="Pull request titles scrolling on hover in the OpenCode sidebar" width="640">
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/prs-hover-dark-v5.gif">
+  <img src="../../assets/prs-hover-light-v5.gif" alt="Pull request titles scrolling on hover in the OpenCode sidebar" width="640">
 </picture>
 
-The sidebar section is collapsible. Each pull request uses a full-width linked title with its muted `repository#number` and colored status below: `approved` or `waiting` for open pull requests, `draft`, or `merged`. Open pull requests also show unresolved review comments and a checks indicator: `✓` passing, `×` failing, `◌` pending. Merged pull requests fold into one `▸ 3 merged` line under the open ones; click it to list them in subdued colors, so open work stays prominent. Hover a clipped title to scroll through its full text once. Click a status line to copy that PR as a Slack-ready summary, or `⧉` in the header to copy the open and draft ones, confirmed with a toast. The count in the header is the open and draft PRs too.
+The sidebar section is collapsible. Each pull request uses a full-width linked title with its muted `repository#number` and colored status below: `approved`, `approved · blocked`, `approved · pending`, or `waiting` for open pull requests, `draft`, or `merged`. The blocked label appears when GitHub reports an approved pull request cannot merge, including when required checks or approvals are outstanding. Pending means checks are still running, even when GitHub has not settled the merge state. Open pull requests also show unresolved review comments and a checks indicator: `✓` passing, `×` failing, `◌` pending. Merged pull requests fold into one `▸ 3 merged` line under the open ones; click it to list them in subdued colors, so open work stays prominent. Hover a clipped title to scroll through its full text once. Click a status line to copy that PR as a Slack-ready summary, or `⧉` in the header to copy the open and draft ones, confirmed with a toast. The count in the header is the open and draft PRs too.
 
 On opencode 2, `/prs` (or clicking the `PRs` header) opens a panel beside the conversation with every PR of the session at full width: title, `repo#number`, status, unresolved comments, diff size, and for open PRs the failing and running checks by name plus a `✓ 397 passing, 56 skipped of 462` line. Keys while the panel has focus: `j`/`k` or arrows move, `enter` or `o` opens the PR in the browser, `c` copies it for Slack, `C` copies the open and draft ones, `r` refreshes, `f` toggles full screen, `q` or `esc` closes. Clicking a row selects it, clicking a title opens it. The `▼` on the sidebar header still folds the section.
 
@@ -35,7 +35,7 @@ A forked session only lists pull requests created after the fork. Messages copie
 
 Results are cached by session. Switching tabs shows the previous result immediately and revalidates GitHub data in the background. The active tab refreshes statuses every thirty seconds without replacing unchanged rows. The panel reads the same cache, so opening it costs no extra request.
 
-Checks come from GitHub's own rollup rather than from listing every check: the rollup state gives the sidebar indicator, its per-state counts give the passing and skipped totals, and a filtered `checkRuns` query on each check suite gives the names of the failing and running ones. A vercel/api PR runs 460 checks, which would take five pages to list and still needs one number.
+Checks come from GitHub's own rollup rather than from listing every check: the rollup state gives the sidebar indicator, its per-state counts give the passing and skipped totals, and a filtered `checkRuns` query on each check suite gives the names of the failing and running ones. GitHub's merge state also tells us when an approved PR is blocked from merging. A PR with hundreds of checks would take multiple pages to list them all.
 
 One published package supports OpenCode 1 and OpenCode 2.
 
