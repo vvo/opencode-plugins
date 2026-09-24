@@ -167,7 +167,7 @@ export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft"
   return pr.checks === "pending" ? "approved · pending" : "approved"
 }
 
-export function pullRequestStatusNeedsAttention(pr: Pick<PullRequest, "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): boolean {
+export function pullRequestStatusIsWarning(pr: Pick<PullRequest, "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): boolean {
   return pr.isDraft || (pr.reviewDecision === "APPROVED" && (pr.mergeStateStatus === "BLOCKED" || pr.checks === "pending"))
 }
 

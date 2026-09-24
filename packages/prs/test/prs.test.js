@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestStatusNeedsAttention, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestStatusIsWarning, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -121,28 +121,28 @@ test("labels pull request states", () => {
 })
 
 test("labels review state with words", () => {
-  const label = (state, isDraft, reviewDecision, mergeStateStatus, checks = "passing") => pullRequestStatusLabel({ state, isDraft, reviewDecision, mergeStateStatus, checks })
-  assert.equal(label("OPEN", false, "APPROVED", "CLEAN"), "approved")
-  assert.equal(label("OPEN", false, "APPROVED", "BLOCKED"), "approved · blocked")
-  assert.equal(label("OPEN", false, "APPROVED", "BLOCKED", "pending"), "approved · blocked")
-  assert.equal(label("OPEN", false, "APPROVED", "UNKNOWN", "pending"), "approved · pending")
-  assert.equal(label("OPEN", false, "APPROVED", "UNSTABLE", "pending"), "approved · pending")
-  assert.equal(label("OPEN", false, "APPROVED", "UNSTABLE", "failing"), "approved")
-  assert.equal(label("OPEN", false, "APPROVED", null), "approved")
-  assert.equal(label("OPEN", false, "CHANGES_REQUESTED", "BLOCKED"), "waiting")
-  assert.equal(label("OPEN", false, "REVIEW_REQUIRED", "BLOCKED"), "waiting")
-  assert.equal(label("OPEN", false, "", "CLEAN"), "waiting")
-  assert.equal(label("OPEN", true, "APPROVED", "BLOCKED"), "draft")
-  assert.equal(label("MERGED", false, "APPROVED", "BLOCKED"), "merged")
+  const approved = { state: "OPEN", isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", checks: "passing" }
+  assert.equal(pullRequestStatusLabel(approved), "approved")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED" }), "approved · blocked")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED", checks: "pending" }), "approved · blocked")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNKNOWN", checks: "pending" }), "approved · pending")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNSTABLE", checks: "pending" }), "approved · pending")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNSTABLE", checks: "failing" }), "approved")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: null }), "approved")
+  assert.equal(pullRequestStatusLabel({ ...approved, reviewDecision: "CHANGES_REQUESTED", mergeStateStatus: "BLOCKED" }), "waiting")
+  assert.equal(pullRequestStatusLabel({ ...approved, reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED" }), "waiting")
+  assert.equal(pullRequestStatusLabel({ ...approved, reviewDecision: "" }), "waiting")
+  assert.equal(pullRequestStatusLabel({ ...approved, isDraft: true, mergeStateStatus: "BLOCKED" }), "draft")
+  assert.equal(pullRequestStatusLabel({ ...approved, state: "MERGED", mergeStateStatus: "BLOCKED" }), "merged")
 })
 
-test("colors approved PRs that still need attention", () => {
-  const needsAttention = (isDraft, reviewDecision, mergeStateStatus, checks) => pullRequestStatusNeedsAttention({ isDraft, reviewDecision, mergeStateStatus, checks })
-  assert.equal(needsAttention(false, "APPROVED", "BLOCKED", "passing"), true)
-  assert.equal(needsAttention(false, "APPROVED", "UNKNOWN", "pending"), true)
-  assert.equal(needsAttention(false, "APPROVED", "CLEAN", "passing"), false)
-  assert.equal(needsAttention(false, "REVIEW_REQUIRED", "BLOCKED", "pending"), false)
-  assert.equal(needsAttention(true, "APPROVED", "UNKNOWN", "none"), true)
+test("uses warning color for draft and approved PRs with merge blockers", () => {
+  const approved = { isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", checks: "passing" }
+  assert.equal(pullRequestStatusIsWarning({ ...approved, mergeStateStatus: "BLOCKED" }), true)
+  assert.equal(pullRequestStatusIsWarning({ ...approved, mergeStateStatus: "UNKNOWN", checks: "pending" }), true)
+  assert.equal(pullRequestStatusIsWarning(approved), false)
+  assert.equal(pullRequestStatusIsWarning({ ...approved, reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", checks: "pending" }), false)
+  assert.equal(pullRequestStatusIsWarning({ ...approved, isDraft: true, mergeStateStatus: "UNKNOWN", checks: "none" }), true)
 })
 
 test("counts unresolved review threads", () => {

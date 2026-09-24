@@ -17,7 +17,7 @@ import {
   pullRequestFromRest,
   pullRequestLabel,
   pullRequestStatusLabel,
-  pullRequestStatusNeedsAttention,
+  pullRequestStatusIsWarning,
   pullRequestsQuery,
   slackPullRequest,
   slackPullRequestHtml,
@@ -207,7 +207,7 @@ function PullRequestRow(props: {
   const titleColor = () => merged() ? subdued() : props.link
   const statusColor = () => {
     if (merged()) return subdued()
-    return pullRequestStatusNeedsAttention(props.pr) ? props.draft : props.open
+    return pullRequestStatusIsWarning(props.pr) ? props.draft : props.open
   }
   const checksColor = (indicator: ChecksIndicator) => {
     if (indicator === "✓") return props.success
@@ -571,7 +571,7 @@ function PanelRow(props: {
   const subdued = () => merged() ? fade(theme.text.muted, MERGED_OPACITY) : theme.text.muted
   const statusColor = () => {
     if (merged()) return subdued()
-    return pullRequestStatusNeedsAttention(props.pr) ? theme.text.feedback.warning.base : theme.text.feedback.info.base
+    return pullRequestStatusIsWarning(props.pr) ? theme.text.feedback.warning.base : theme.text.feedback.info.base
   }
   const checksLine = () => {
     const summary = props.pr.checkSummary
