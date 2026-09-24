@@ -43,7 +43,7 @@ test("batches every pull request into one GraphQL query", () => {
 
 test("builds a pull request from a GraphQL node", () => {
   const pr = pullRequestFromNode(ref, {
-    title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED",
+    title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED", mergeable: "CONFLICTING",
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 51, deletions: 9,
     reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }] },
     commits: { nodes: [{ commit: { statusCheckRollup: rollup("SUCCESS", { SUCCESS: 1 }), checkSuites: { nodes: [suite()] } } }] },
@@ -52,6 +52,7 @@ test("builds a pull request from a GraphQL node", () => {
   assert.equal(pr.unresolvedThreads, 2)
   assert.equal(pr.checks, "passing")
   assert.equal(pr.reviewDecision, "APPROVED")
+  assert.equal(pr.mergeable, "CONFLICTING")
   assert.equal("reviewThreads" in pr, false)
   assert.equal("commits" in pr, false)
 })
@@ -140,6 +141,17 @@ test("maps the checks rollup to an indicator", () => {
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "pending" }), "◌")
   assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "none" }), undefined)
   assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing" }), undefined)
+})
+
+test("shows a conflicting PR as failing even when its checks passed", () => {
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing", mergeable: "CONFLICTING" }), "×")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "none", mergeable: "CONFLICTING" }), "×")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing", mergeable: "UNKNOWN" }), "✓")
+  assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing", mergeable: "CONFLICTING" }), undefined)
+  const rest = { title: "Rest", state: "open", draft: false, created_at: "2026-09-21T14:08:09Z", merged_at: null, additions: 3, deletions: 2 }
+  assert.equal(pullRequestFromRest(ref, { ...rest, mergeable: false }, undefined).mergeable, "CONFLICTING")
+  assert.equal(pullRequestFromRest(ref, { ...rest, mergeable: true }, undefined).mergeable, "MERGEABLE")
+  assert.equal(pullRequestFromRest(ref, { ...rest, mergeable: null }, undefined).mergeable, "UNKNOWN")
 })
 
 test("labels pull requests with their repository", () => {

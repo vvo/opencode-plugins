@@ -118,6 +118,7 @@ function samePullRequest(left: PullRequest, right: PullRequest): boolean {
     left.reviewDecision === right.reviewDecision &&
     left.unresolvedThreads === right.unresolvedThreads &&
     left.checks === right.checks &&
+    left.mergeable === right.mergeable &&
     sameCheckSummary(left.checkSummary, right.checkSummary) &&
     left.createdAt === right.createdAt &&
     left.mergedAt === right.mergedAt &&
@@ -607,6 +608,9 @@ function PanelRow(props: {
           {` · +${props.pr.additions}/-${props.pr.deletions}`}
         </text>
       </box>
+      <Show when={props.pr.state === "OPEN" && props.pr.mergeable === "CONFLICTING"}>
+        <text fg={theme.text.feedback.error.base} marginLeft={2} wrapMode="none">× merge conflicts</text>
+      </Show>
       <Show when={props.pr.state === "OPEN" && props.pr.checkSummary.total > 0}>
         <box flexDirection="column" marginLeft={2} minWidth={0}>
           <For each={props.pr.checkSummary.failing}>{(name) => (
