@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestStatusIsWarning, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -124,9 +124,8 @@ test("labels review state with words", () => {
   const approved = { state: "OPEN", isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", checks: "passing" }
   assert.equal(pullRequestStatusLabel(approved), "approved")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED" }), "approved · blocked")
-  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED", checks: "pending" }), "approved · pending")
-  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNKNOWN", checks: "pending" }), "approved · pending")
-  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNSTABLE", checks: "pending" }), "approved · pending")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED", checks: "pending" }), "approved")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNKNOWN", checks: "pending" }), "approved")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNSTABLE", checks: "failing" }), "approved")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: null }), "approved")
   assert.equal(pullRequestStatusLabel({ ...approved, reviewDecision: "CHANGES_REQUESTED", mergeStateStatus: "BLOCKED" }), "waiting")
@@ -134,15 +133,6 @@ test("labels review state with words", () => {
   assert.equal(pullRequestStatusLabel({ ...approved, reviewDecision: "" }), "waiting")
   assert.equal(pullRequestStatusLabel({ ...approved, isDraft: true, mergeStateStatus: "BLOCKED" }), "draft")
   assert.equal(pullRequestStatusLabel({ ...approved, state: "MERGED", mergeStateStatus: "BLOCKED" }), "merged")
-})
-
-test("uses warning color for draft and approved PRs with merge blockers", () => {
-  const approved = { isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", checks: "passing" }
-  assert.equal(pullRequestStatusIsWarning({ ...approved, mergeStateStatus: "BLOCKED" }), true)
-  assert.equal(pullRequestStatusIsWarning({ ...approved, mergeStateStatus: "UNKNOWN", checks: "pending" }), true)
-  assert.equal(pullRequestStatusIsWarning(approved), false)
-  assert.equal(pullRequestStatusIsWarning({ ...approved, reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", checks: "pending" }), false)
-  assert.equal(pullRequestStatusIsWarning({ ...approved, isDraft: true, mergeStateStatus: "UNKNOWN", checks: "none" }), true)
 })
 
 test("counts unresolved review threads", () => {
@@ -176,6 +166,13 @@ test("labels pull requests with their repository", () => {
     owner: "vercel", repo: "front", number: 90443,
     url: "https://github.com/vercel/front/pull/90443",
   }), "front#90443")
+})
+
+test("shortens the repository before the PR number", () => {
+  const pr = { owner: "vvo", repo: "opencode-plugins", number: 37, url: "https://github.com/vvo/opencode-plugins/pull/37" }
+  assert.equal(fitPullRequestLabel(pr, 40), "opencode-plugins#37")
+  assert.equal(fitPullRequestLabel(pr, 10), "openco…#37")
+  assert.equal(fitPullRequestLabel(pr, 4), "#37")
 })
 
 test("only extracts pull requests created by gh", () => {

@@ -8,6 +8,7 @@ import type { Plugin } from "plugin-v2/tui"
 import type { PanelInput } from "plugin-v2/tui/context"
 import {
   extractCreatedPullRequests,
+  fitPullRequestLabel,
   groupPullRequests,
   marquee,
   predatesSession,
@@ -15,10 +16,8 @@ import {
   pullRequestCommentsLabel,
   pullRequestFromNode,
   pullRequestFromRest,
-  pullRequestHasConflicts,
   pullRequestLabel,
   pullRequestStatusLabel,
-  pullRequestStatusIsWarning,
   pullRequestsQuery,
   slackPullRequest,
   slackPullRequestHtml,
@@ -162,7 +161,6 @@ function PullRequestRow(props: {
   pr: PullRequest
   subdued: string | RGBA
   link: string | RGBA
-  draft: string | RGBA
   open: string | RGBA
   success: string | RGBA
   error: string | RGBA
@@ -204,13 +202,11 @@ function PullRequestRow(props: {
     const label = pullRequestCommentsLabel(props.pr)
     return label ? ` · ${label}` : ""
   }
+  const statusSuffix = () => ` · ${pullRequestStatusLabel(props.pr)}${commentsSuffix()}`
+  const checksSuffix = () => pullRequestChecksIndicator(props.pr) ? " · ✓" : ""
   const subdued = () => merged() ? fade(props.subdued, MERGED_OPACITY) : props.subdued
   const titleColor = () => merged() ? subdued() : props.link
-  const statusColor = () => {
-    if (merged()) return subdued()
-    if (pullRequestHasConflicts(props.pr)) return props.error
-    return pullRequestStatusIsWarning(props.pr) ? props.draft : props.open
-  }
+  const statusColor = () => merged() ? subdued() : props.open
   const checksColor = (indicator: ChecksIndicator) => {
     if (indicator === "✓") return props.success
     if (indicator === "×") return props.error
@@ -237,7 +233,7 @@ function PullRequestRow(props: {
       >
         <box flexShrink={1} minWidth={0} overflow="hidden">
           <text fg={subdued()} wrapMode="none">
-            {pullRequestLabel(props.pr)}
+            {fitPullRequestLabel(props.pr, width() - statusSuffix().length - checksSuffix().length)}
             <span style={{ fg: statusColor() }}> · {pullRequestStatusLabel(props.pr)}</span>
             {commentsSuffix()}
           </text>
@@ -365,7 +361,6 @@ function PullRequests(props: {
   foreground: string | RGBA
   subdued: string | RGBA
   link: string | RGBA
-  draft: string | RGBA
   open: string | RGBA
   success: string | RGBA
   error: string | RGBA
@@ -386,7 +381,6 @@ function PullRequests(props: {
       pr={pr}
       subdued={props.subdued}
       link={props.link}
-      draft={props.draft}
       open={props.open}
       success={props.success}
       error={props.error}
@@ -571,11 +565,7 @@ function PanelRow(props: {
   const theme = props.context.theme
   const merged = () => props.pr.state === "MERGED"
   const subdued = () => merged() ? fade(theme.text.muted, MERGED_OPACITY) : theme.text.muted
-  const statusColor = () => {
-    if (merged()) return subdued()
-    if (pullRequestHasConflicts(props.pr)) return theme.text.feedback.error.base
-    return pullRequestStatusIsWarning(props.pr) ? theme.text.feedback.warning.base : theme.text.feedback.info.base
-  }
+  const statusColor = () => merged() ? subdued() : theme.text.feedback.info.base
   const checksLine = () => {
     const summary = props.pr.checkSummary
     const parts = [`${summary.passing} passing`]
@@ -678,7 +668,6 @@ function setup(context: Context) {
         foreground={context.theme.text.base}
         subdued={context.theme.text.muted}
         link={context.theme.markdown.link}
-        draft={context.theme.text.feedback.warning.base}
         open={context.theme.text.feedback.info.base}
         success={context.theme.text.feedback.success.base}
         error={context.theme.text.feedback.error.base}
@@ -712,7 +701,6 @@ const tui: TuiPlugin = async (api) => {
           foreground={api.theme.current.text}
           subdued={api.theme.current.textMuted}
           link={api.theme.current.markdownLink}
-          draft={api.theme.current.warning}
           open={api.theme.current.info}
           success={api.theme.current.success}
           error={api.theme.current.error}

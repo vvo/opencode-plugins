@@ -19,7 +19,7 @@ PRS = {
         "title": "Update the package publishing workflow",
         "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "UNKNOWN",
         "createdAt": "2026-09-17T08:05:00Z", "mergedAt": None,
-        "additions": 12, "deletions": 4, "checks": "IN_PROGRESS", "unresolved": 0,
+        "additions": 12, "deletions": 4, "checks": "IN_PROGRESS", "unresolved": 1,
     },
     35: {
         "title": "[opencode-prs] Refresh PRs faster and update copied reviews",

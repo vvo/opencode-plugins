@@ -164,19 +164,14 @@ export function pullRequestHasConflicts(pr: Pick<PullRequest, "state" | "mergeSt
   return pr.state === "OPEN" && pr.mergeStateStatus === "DIRTY"
 }
 
-// Required checks still running also report BLOCKED, so pending wins until they finish.
+// Running required checks also report BLOCKED; the ◌ indicator already says they are pending.
 export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): string {
   if (pullRequestHasConflicts(pr)) return "conflicts"
   const status = pullRequestStatus(pr)
   if (status !== "open") return status
   if (pr.reviewDecision !== "APPROVED") return "waiting"
-  if (pr.checks === "pending") return "approved · pending"
-  if (pr.mergeStateStatus === "BLOCKED") return "approved · blocked"
+  if (pr.mergeStateStatus === "BLOCKED" && pr.checks !== "pending") return "approved · blocked"
   return "approved"
-}
-
-export function pullRequestStatusIsWarning(pr: Pick<PullRequest, "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): boolean {
-  return pr.isDraft || (pr.reviewDecision === "APPROVED" && (pr.mergeStateStatus === "BLOCKED" || pr.checks === "pending"))
 }
 
 export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "reviewDecision" | "unresolvedThreads">): string | undefined {
@@ -188,6 +183,16 @@ export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "review
 
 export function pullRequestLabel(pr: PullRequestRef): string {
   return `${pr.repo}#${pr.number}`
+}
+
+// The repository name gives way first so the number, status and comments stay readable.
+export function fitPullRequestLabel(pr: PullRequestRef, width: number): string {
+  const label = pullRequestLabel(pr)
+  if (label.length <= width) return label
+  const number = `#${pr.number}`
+  const repoWidth = width - number.length
+  if (repoWidth < 2) return number
+  return `${truncate(pr.repo, repoWidth)}${number}`
 }
 
 export function sortPullRequests(prs: PullRequest[]): PullRequest[] {
