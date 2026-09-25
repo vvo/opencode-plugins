@@ -609,6 +609,9 @@ function PanelRow(props: {
           {` · +${props.pr.additions}/-${props.pr.deletions}`}
         </text>
       </box>
+      <Show when={props.pr.state === "OPEN" && props.pr.mergeStateStatus === "DIRTY"}>
+        <text fg={theme.text.feedback.error.base} marginLeft={2} wrapMode="none">× merge conflicts</text>
+      </Show>
       <Show when={props.pr.state === "OPEN" && props.pr.checkSummary.total > 0}>
         <box flexDirection="column" marginLeft={2} minWidth={0}>
           <For each={props.pr.checkSummary.failing}>{(name) => (

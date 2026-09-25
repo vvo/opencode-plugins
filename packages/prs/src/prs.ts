@@ -145,8 +145,10 @@ export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, 
 }
 
 export type ChecksIndicator = "✓" | "×" | "◌"
-export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): ChecksIndicator | undefined {
+// GitHub stops running checks on a conflicting branch, so a green rollup would hide that the PR cannot merge.
+export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks" | "mergeStateStatus">): ChecksIndicator | undefined {
   if (pr.state !== "OPEN") return undefined
+  if (pr.mergeStateStatus === "DIRTY") return "×"
   if (pr.checks === "passing") return "✓"
   if (pr.checks === "failing") return "×"
   if (pr.checks === "pending") return "◌"

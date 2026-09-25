@@ -162,6 +162,13 @@ test("maps the checks rollup to an indicator", () => {
   assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing" }), undefined)
 })
 
+test("shows a conflicting PR as failing even when its checks passed", () => {
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing", mergeStateStatus: "DIRTY" }), "×")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "none", mergeStateStatus: "DIRTY" }), "×")
+  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing", mergeStateStatus: "BLOCKED" }), "✓")
+  assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing", mergeStateStatus: "DIRTY" }), undefined)
+})
+
 test("labels pull requests with their repository", () => {
   assert.equal(pullRequestLabel({
     owner: "vercel", repo: "front", number: 90443,
