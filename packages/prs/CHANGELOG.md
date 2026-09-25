@@ -1,5 +1,13 @@
 # opencode-prs
 
+## 0.5.1
+
+### Patch Changes
+
+- 191bb10: Show `conflicts` in red as the status of a PR with merge conflicts, keep `×` for failing checks only, and show `approved · pending` instead of `approved · blocked` while required checks run.
+- c8bd3f9: Show when an approved pull request is blocked from merging or still has pending checks.
+- 251c581: Show a red × on PRs with merge conflicts, and a "merge conflicts" line in the /prs panel.
+
 ## 0.5.0
 
 ### Minor Changes
