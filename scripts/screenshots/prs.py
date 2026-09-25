@@ -13,8 +13,8 @@ How it works:
    whose transcript contains four `gh pr create` shell calls, so the sidebar
    lists four PRs. `scripts/screenshots/gh` shadows the real `gh` on PATH and
    answers the batched GraphQL query with canned data that covers approved +
-   checks passing, waiting + comments + checks failing, draft + checks pending,
-   and merged (folded behind the `▸ 1 merged` line).
+   checks passing, approved but blocked, approved + pending checks, and merged
+   (folded behind the `▸ 1 merged` line).
 2. Starts `opencode --session ...` inside a detached tmux pane with a private
    XDG_CONFIG_HOME so the theme mode and plugin list do not touch ~/.config.
 3. Captures the pane with `tmux capture-pane -e` (keeps the SGR colors), then
@@ -26,7 +26,7 @@ How it works:
    of the first title for the animation frames.
 5. Assembles the GIF: 1.1s rest, 120ms per marquee step, 2.1s rest, plays once.
 
-Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v4.gif.
+Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v5.gif.
 Bump the gif suffix (and the README references) when the animation changes:
 GitHub caches by filename.
 """
@@ -37,12 +37,12 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ASSETS = os.path.join(ROOT, "assets")
 PLUGIN = os.path.join(ROOT, "packages/prs/dist")
 SESSION = "ses_screenshots0000000000prs"
-GIF_SUFFIX = "v4"
+GIF_SUFFIX = "v5"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 PR_URLS = [  # order of creation, sidebar sorts them itself
     "https://github.com/vvo/opencode-plugins/pull/35",
-    "https://github.com/vvo/opencode-plugins/pull/39",
+    "https://github.com/vvo/tooling/pull/39",
     "https://github.com/vvo/tzdb/pull/212",
     "https://github.com/vvo/opencode-plugins/pull/37",
 ]

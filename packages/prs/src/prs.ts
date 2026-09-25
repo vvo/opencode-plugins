@@ -4,9 +4,9 @@ export type PullRequest = PullRequestRef & {
   state: "OPEN" | "CLOSED" | "MERGED"
   isDraft: boolean
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | "" | null
+  mergeStateStatus: "BEHIND" | "BLOCKED" | "CLEAN" | "DIRTY" | "HAS_HOOKS" | "UNKNOWN" | "UNSTABLE" | null
   unresolvedThreads: number
   checks: "passing" | "failing" | "pending" | "none"
-  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
   /** Checks on the head commit, for the panel. The sidebar only reads `checks`. */
   checkSummary: CheckSummary
   createdAt: string
@@ -40,7 +40,7 @@ export type CheckSuiteNode = {
   running: { nodes: { name: string }[] }
 }
 
-export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "mergeable" | "createdAt" | "mergedAt" | "additions" | "deletions"> & {
+export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "mergeStateStatus" | "createdAt" | "mergedAt" | "additions" | "deletions"> & {
   reviewThreads: { nodes: { isResolved: boolean }[] }
   commits: { nodes: { commit: { statusCheckRollup: StatusCheckRollup | null; checkSuites: { nodes: CheckSuiteNode[] } } }[] }
 }
@@ -83,7 +83,6 @@ export type RestPullRequest = {
   title: string
   state: "open" | "closed"
   draft: boolean
-  mergeable: boolean | null
   created_at: string
   merged_at: string | null
   additions: number
@@ -91,7 +90,7 @@ export type RestPullRequest = {
 }
 
 const PULL_REQUEST_FIELDS = [
-  "title state url number isDraft reviewDecision mergeable createdAt mergedAt additions deletions",
+  "title state url number isDraft reviewDecision mergeStateStatus createdAt mergedAt additions deletions",
   "reviewThreads(first: 100) { nodes { isResolved } }",
   "commits(last: 1) { nodes { commit {",
   "statusCheckRollup { state contexts(first: 1) { totalCount checkRunCountsByState { state count } statusContextCountsByState { state count } } }",
@@ -126,12 +125,6 @@ function restState(data: RestPullRequest): PullRequest["state"] {
   return data.state === "open" ? "OPEN" : "CLOSED"
 }
 
-// REST reports null while GitHub is still computing mergeability.
-function restMergeable(mergeable: boolean | null): PullRequest["mergeable"] {
-  if (mergeable === null) return "UNKNOWN"
-  return mergeable ? "MERGEABLE" : "CONFLICTING"
-}
-
 // REST has no review decision, thread resolution or check rollup, so those keep their last GraphQL values.
 export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, cached: PullRequest | undefined): PullRequest {
   return {
@@ -144,7 +137,7 @@ export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, 
     additions: data.additions,
     deletions: data.deletions,
     reviewDecision: cached?.reviewDecision ?? null,
-    mergeable: restMergeable(data.mergeable),
+    mergeStateStatus: cached?.mergeStateStatus ?? null,
     unresolvedThreads: cached?.unresolvedThreads ?? 0,
     checks: cached?.checks ?? "none",
     checkSummary: cached?.checkSummary ?? EMPTY_CHECKS,
@@ -153,9 +146,9 @@ export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, 
 
 export type ChecksIndicator = "✓" | "×" | "◌"
 // GitHub stops running checks on a conflicting branch, so a green rollup would hide that the PR cannot merge.
-export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks" | "mergeable">): ChecksIndicator | undefined {
+export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks" | "mergeStateStatus">): ChecksIndicator | undefined {
   if (pr.state !== "OPEN") return undefined
-  if (pr.mergeable === "CONFLICTING") return "×"
+  if (pr.mergeStateStatus === "DIRTY") return "×"
   if (pr.checks === "passing") return "✓"
   if (pr.checks === "failing") return "×"
   if (pr.checks === "pending") return "◌"
@@ -168,10 +161,16 @@ export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "
   return pr.isDraft ? "draft" : "open"
 }
 
-export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision">): string {
+export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): string {
   const status = pullRequestStatus(pr)
   if (status !== "open") return status
-  return pr.reviewDecision === "APPROVED" ? "approved" : "waiting"
+  if (pr.reviewDecision !== "APPROVED") return "waiting"
+  if (pr.mergeStateStatus === "BLOCKED") return "approved · blocked"
+  return pr.checks === "pending" ? "approved · pending" : "approved"
+}
+
+export function pullRequestStatusIsWarning(pr: Pick<PullRequest, "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): boolean {
+  return pr.isDraft || (pr.reviewDecision === "APPROVED" && (pr.mergeStateStatus === "BLOCKED" || pr.checks === "pending"))
 }
 
 export function pullRequestCommentsLabel(pr: Pick<PullRequest, "state" | "reviewDecision" | "unresolvedThreads">): string | undefined {
