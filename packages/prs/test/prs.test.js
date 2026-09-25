@@ -124,7 +124,7 @@ test("labels review state with words", () => {
   const approved = { state: "OPEN", isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", checks: "passing" }
   assert.equal(pullRequestStatusLabel(approved), "approved")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED" }), "approved · blocked")
-  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED", checks: "pending" }), "approved · blocked")
+  assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "BLOCKED", checks: "pending" }), "approved · pending")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNKNOWN", checks: "pending" }), "approved · pending")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNSTABLE", checks: "pending" }), "approved · pending")
   assert.equal(pullRequestStatusLabel({ ...approved, mergeStateStatus: "UNSTABLE", checks: "failing" }), "approved")
@@ -162,11 +162,13 @@ test("maps the checks rollup to an indicator", () => {
   assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing" }), undefined)
 })
 
-test("shows a conflicting PR as failing even when its checks passed", () => {
-  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing", mergeStateStatus: "DIRTY" }), "×")
-  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "none", mergeStateStatus: "DIRTY" }), "×")
-  assert.equal(pullRequestChecksIndicator({ state: "OPEN", checks: "passing", mergeStateStatus: "BLOCKED" }), "✓")
-  assert.equal(pullRequestChecksIndicator({ state: "MERGED", checks: "passing", mergeStateStatus: "DIRTY" }), undefined)
+test("labels a conflicting PR as conflicts and leaves the checks indicator alone", () => {
+  const conflicting = { state: "OPEN", isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "DIRTY", checks: "passing" }
+  assert.equal(pullRequestStatusLabel(conflicting), "conflicts")
+  assert.equal(pullRequestStatusLabel({ ...conflicting, isDraft: true }), "conflicts")
+  assert.equal(pullRequestStatusLabel({ ...conflicting, reviewDecision: "REVIEW_REQUIRED" }), "conflicts")
+  assert.equal(pullRequestStatusLabel({ ...conflicting, state: "MERGED" }), "merged")
+  assert.equal(pullRequestChecksIndicator(conflicting), "✓")
 })
 
 test("labels pull requests with their repository", () => {
