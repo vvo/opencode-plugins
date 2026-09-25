@@ -11,7 +11,7 @@ PRS = {
     },
     212: {
         "title": "Update time zone database to 2026b",
-        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "BLOCKED",
+        "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED", "mergeStateStatus": "DIRTY",
         "createdAt": "2026-09-17T08:40:00Z", "mergedAt": None,
         "additions": 61, "deletions": 9, "checks": "SUCCESS", "unresolved": 0,
     },

@@ -145,10 +145,8 @@ export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, 
 }
 
 export type ChecksIndicator = "✓" | "×" | "◌"
-// GitHub stops running checks on a conflicting branch, so a green rollup would hide that the PR cannot merge.
-export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks" | "mergeStateStatus">): ChecksIndicator | undefined {
+export function pullRequestChecksIndicator(pr: Pick<PullRequest, "state" | "checks">): ChecksIndicator | undefined {
   if (pr.state !== "OPEN") return undefined
-  if (pr.mergeStateStatus === "DIRTY") return "×"
   if (pr.checks === "passing") return "✓"
   if (pr.checks === "failing") return "×"
   if (pr.checks === "pending") return "◌"
@@ -161,12 +159,20 @@ export function pullRequestStatus(pr: Pick<PullRequest, "state" | "isDraft">): "
   return pr.isDraft ? "draft" : "open"
 }
 
+// GitHub stops running checks on a conflicting branch, so conflicts must show even when every check is green.
+export function pullRequestHasConflicts(pr: Pick<PullRequest, "state" | "mergeStateStatus">): boolean {
+  return pr.state === "OPEN" && pr.mergeStateStatus === "DIRTY"
+}
+
+// Required checks still running also report BLOCKED, so pending wins until they finish.
 export function pullRequestStatusLabel(pr: Pick<PullRequest, "state" | "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): string {
+  if (pullRequestHasConflicts(pr)) return "conflicts"
   const status = pullRequestStatus(pr)
   if (status !== "open") return status
   if (pr.reviewDecision !== "APPROVED") return "waiting"
+  if (pr.checks === "pending") return "approved · pending"
   if (pr.mergeStateStatus === "BLOCKED") return "approved · blocked"
-  return pr.checks === "pending" ? "approved · pending" : "approved"
+  return "approved"
 }
 
 export function pullRequestStatusIsWarning(pr: Pick<PullRequest, "isDraft" | "reviewDecision" | "mergeStateStatus" | "checks">): boolean {

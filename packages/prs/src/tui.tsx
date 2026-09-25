@@ -15,6 +15,7 @@ import {
   pullRequestCommentsLabel,
   pullRequestFromNode,
   pullRequestFromRest,
+  pullRequestHasConflicts,
   pullRequestLabel,
   pullRequestStatusLabel,
   pullRequestStatusIsWarning,
@@ -207,6 +208,7 @@ function PullRequestRow(props: {
   const titleColor = () => merged() ? subdued() : props.link
   const statusColor = () => {
     if (merged()) return subdued()
+    if (pullRequestHasConflicts(props.pr)) return props.error
     return pullRequestStatusIsWarning(props.pr) ? props.draft : props.open
   }
   const checksColor = (indicator: ChecksIndicator) => {
@@ -571,6 +573,7 @@ function PanelRow(props: {
   const subdued = () => merged() ? fade(theme.text.muted, MERGED_OPACITY) : theme.text.muted
   const statusColor = () => {
     if (merged()) return subdued()
+    if (pullRequestHasConflicts(props.pr)) return theme.text.feedback.error.base
     return pullRequestStatusIsWarning(props.pr) ? theme.text.feedback.warning.base : theme.text.feedback.info.base
   }
   const checksLine = () => {
@@ -609,9 +612,6 @@ function PanelRow(props: {
           {` · +${props.pr.additions}/-${props.pr.deletions}`}
         </text>
       </box>
-      <Show when={props.pr.state === "OPEN" && props.pr.mergeStateStatus === "DIRTY"}>
-        <text fg={theme.text.feedback.error.base} marginLeft={2} wrapMode="none">× merge conflicts</text>
-      </Show>
       <Show when={props.pr.state === "OPEN" && props.pr.checkSummary.total > 0}>
         <box flexDirection="column" marginLeft={2} minWidth={0}>
           <For each={props.pr.checkSummary.failing}>{(name) => (
