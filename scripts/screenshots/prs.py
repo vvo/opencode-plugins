@@ -26,7 +26,7 @@ How it works:
    of the first title for the animation frames.
 5. Assembles the GIF: 1.1s rest, 120ms per marquee step, 2.1s rest, plays once.
 
-Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v6.gif.
+Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v7.gif.
 Bump the gif suffix (and the README references) when the animation changes:
 GitHub caches by filename.
 """
@@ -37,7 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ASSETS = os.path.join(ROOT, "assets")
 PLUGIN = os.path.join(ROOT, "packages/prs/dist")
 SESSION = "ses_screenshots0000000000prs"
-GIF_SUFFIX = "v6"
+GIF_SUFFIX = "v7"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 PR_URLS = [  # order of creation, sidebar sorts them itself
