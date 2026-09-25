@@ -1,5 +1,11 @@
 # opencode-prs
 
+## 0.5.2
+
+### Patch Changes
+
+- 8f87d79: Drop the `pending` status word, since `◌` already shows running checks. Status words now share one color, so no state depends on telling colors apart. On a narrow sidebar the repository name shortens first, so comment counts are no longer cut off.
+
 ## 0.5.1
 
 ### Patch Changes
