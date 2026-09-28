@@ -29,15 +29,20 @@ PRS = {
     },
 }
 
-def rollup(kind):
-    """GitHub's per-state counts for one check named `test`, plus the suite that names it when it needs attention."""
-    if kind == "IN_PROGRESS":
-        return {"state": "PENDING", "run_state": "IN_PROGRESS", "failing": [], "running": ["test"]}
-    return {"state": kind, "run_state": kind, "failing": ["test"] if kind == "FAILURE" else [], "running": []}
+def suite(kind):
+    """One check suite holding a single check named `test` in the given state."""
+    failing = ["test"] if kind == "FAILURE" else []
+    running = ["test"] if kind == "IN_PROGRESS" else []
+    return {
+        "workflowRun": None,
+        "all": {"totalCount": 1},
+        "passing": {"totalCount": 1 if kind == "SUCCESS" else 0},
+        "failing": {"totalCount": len(failing), "nodes": [{"name": n} for n in failing]},
+        "running": {"totalCount": len(running), "nodes": [{"name": n} for n in running]},
+    }
 
 def node(owner, repo, number):
     pr = PRS[number]
-    checks = rollup(pr["checks"])
     return {
         "title": pr["title"], "state": pr["state"], "number": number,
         "url": f"https://github.com/{owner}/{repo}/pull/{number}",
@@ -46,10 +51,8 @@ def node(owner, repo, number):
         "additions": pr["additions"], "deletions": pr["deletions"],
         "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"]},
         "commits": {"nodes": [{"commit": {
-            "statusCheckRollup": {"state": checks["state"], "contexts": {
-                "totalCount": 1, "checkRunCountsByState": [{"state": checks["run_state"], "count": 1}], "statusContextCountsByState": []}},
-            "checkSuites": {"nodes": [{"failing": {"nodes": [{"name": n} for n in checks["failing"]]},
-                                       "running": {"nodes": [{"name": n} for n in checks["running"]]}}]},
+            "statusCheckRollup": {"contexts": {"statusContextCountsByState": []}},
+            "checkSuites": {"nodes": [suite(pr["checks"])]},
         }}]},
     }
 

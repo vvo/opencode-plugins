@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -23,16 +23,18 @@ test("flags messages inherited from a forked parent", () => {
 })
 
 const ref = { owner: "vvo", repo: "opencode-plugins", number: 42, url: "https://github.com/vvo/opencode-plugins/pull/42" }
-const counts = (entries) => Object.entries(entries).map(([state, count]) => ({ state, count }))
-const rollup = (state, runs, statuses = {}) => ({
-  state,
-  contexts: {
-    totalCount: Object.values(runs).reduce((a, b) => a + b, 0) + Object.values(statuses).reduce((a, b) => a + b, 0),
-    checkRunCountsByState: counts(runs),
-    statusContextCountsByState: counts(statuses),
-  },
+const rollup = (statuses = {}) => ({
+  contexts: { statusContextCountsByState: Object.entries(statuses).map(([state, count]) => ({ state, count })) },
 })
-const suite = (failing = [], running = []) => ({ failing: { nodes: failing.map((name) => ({ name })) }, running: { nodes: running.map((name) => ({ name })) } })
+const names = (list) => list.map((name) => ({ name }))
+const suite = ({ failing = [], running = [], failed = failing.length, pending = running.length, passing = 0, skipped = 0, workflowRun = null } = {}) => ({
+  workflowRun,
+  all: { totalCount: failed + pending + passing + skipped },
+  passing: { totalCount: passing },
+  failing: { totalCount: failed, nodes: names(failing) },
+  running: { totalCount: pending, nodes: names(running) },
+})
+const run = (workflow, runNumber) => ({ runNumber, workflow: { id: workflow } })
 
 test("batches every pull request into one GraphQL query", () => {
   const query = pullRequestsQuery([ref, { ...ref, owner: "vercel", repo: "api", number: 7 }])
@@ -46,7 +48,7 @@ test("builds a pull request from a GraphQL node", () => {
     title: "Batch", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "BLOCKED",
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 51, deletions: 9,
     reviewThreads: { nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: false }] },
-    commits: { nodes: [{ commit: { statusCheckRollup: rollup("SUCCESS", { SUCCESS: 1 }), checkSuites: { nodes: [suite()] } } }] },
+    commits: { nodes: [{ commit: { statusCheckRollup: rollup(), checkSuites: { nodes: [suite({ passing: 1 })] } } }] },
   })
   assert.equal(pr.owner, "vvo")
   assert.equal(pr.unresolvedThreads, 2)
@@ -64,8 +66,11 @@ test("summarizes checks from GitHub's counts, naming only what needs attention",
     createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 1, deletions: 1,
     reviewThreads: { nodes: [] },
     commits: { nodes: [{ commit: {
-      statusCheckRollup: rollup("FAILURE", { SUCCESS: 391, SKIPPED: 56, FAILURE: 7, IN_PROGRESS: 2, QUEUED: 1 }, { SUCCESS: 4 }),
-      checkSuites: { nodes: [suite(["Test / iam (shard: 3/4)", "Test / observability"], ["Test / growth"]), suite(["Test / hive"])] },
+      statusCheckRollup: rollup({ SUCCESS: 4 }),
+      checkSuites: { nodes: [
+        suite({ failing: ["Test / iam (shard: 3/4)", "Test / observability"], failed: 6, running: ["Test / growth"], pending: 3, passing: 300, skipped: 56 }),
+        suite({ failing: ["Test / hive"], passing: 91 }),
+      ] },
     } }] },
   })
   assert.equal(pr.checks, "failing")
@@ -78,8 +83,20 @@ test("summarizes checks from GitHub's counts, naming only what needs attention",
   })
 })
 
+test("ignores a workflow run replaced by a newer run of the same workflow", () => {
+  const summary = summarizeChecks(rollup(), [
+    suite({ workflowRun: run("quality", 7), failing: ["Summary"], skipped: 3 }),
+    suite({ workflowRun: run("quality", 8), passing: 2, skipped: 1 }),
+    suite({ workflowRun: run("lint", 3), passing: 1 }),
+    suite({ running: ["Vercel – Code Owners"] }),
+  ])
+  assert.deepEqual(summary, { failing: [], running: ["Vercel – Code Owners"], passing: 3, skipped: 1, total: 5 })
+  assert.equal(checksState(summary), "pending")
+  assert.equal(checksState({ ...summary, running: [] }), "passing")
+})
+
 test("counts a pending legacy status even though it has no name", () => {
-  assert.deepEqual(summarizeChecks(rollup("PENDING", { SUCCESS: 2 }, { PENDING: 1 }), []), { failing: [], running: ["1 more"], passing: 2, skipped: 0, total: 3 })
+  assert.deepEqual(summarizeChecks(rollup({ SUCCESS: 1, PENDING: 1 }), [suite({ passing: 1 })]), { failing: [], running: ["1 more"], passing: 2, skipped: 0, total: 3 })
   assert.deepEqual(summarizeChecks(null, []), { failing: [], running: [], passing: 0, skipped: 0, total: 0 })
 })
 
