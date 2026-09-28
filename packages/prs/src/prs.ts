@@ -26,18 +26,19 @@ export type CheckSummary = {
 
 export const EMPTY_CHECKS: CheckSummary = { failing: [], running: [], passing: 0, skipped: 0, total: 0 }
 
-export type RollupState = "SUCCESS" | "FAILURE" | "ERROR" | "PENDING" | "EXPECTED"
-
 type StateCount = { state: string; count: number }
 
+/** Only legacy status contexts come from the rollup. Check runs come from their suites. */
 export type StatusCheckRollup = {
-  state: RollupState
-  contexts: { totalCount: number; checkRunCountsByState: StateCount[]; statusContextCountsByState: StateCount[] }
+  contexts: { statusContextCountsByState: StateCount[] }
 }
 
 export type CheckSuiteNode = {
-  failing: { nodes: { name: string }[] }
-  running: { nodes: { name: string }[] }
+  workflowRun: { runNumber: number; workflow: { id: string } } | null
+  all: { totalCount: number }
+  passing: { totalCount: number }
+  failing: { totalCount: number; nodes: { name: string }[] }
+  running: { totalCount: number; nodes: { name: string }[] }
 }
 
 export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "number" | "isDraft" | "reviewDecision" | "mergeStateStatus" | "createdAt" | "mergedAt" | "additions" | "deletions"> & {
@@ -45,31 +46,43 @@ export type PullRequestNode = Pick<PullRequest, "title" | "state" | "url" | "num
   commits: { nodes: { commit: { statusCheckRollup: StatusCheckRollup | null; checkSuites: { nodes: CheckSuiteNode[] } } }[] }
 }
 
-/** GitHub's own verdict over every check, not just the ones we list. */
-export function rollupChecks(state: RollupState | undefined): PullRequest["checks"] {
-  if (state === "FAILURE" || state === "ERROR") return "failing"
-  if (state === "PENDING" || state === "EXPECTED") return "pending"
-  if (state === "SUCCESS") return "passing"
+/** Derived from the summary, not GitHub's rollup state: the rollup still counts runs a newer run of the same workflow replaced. */
+export function checksState(summary: CheckSummary): PullRequest["checks"] {
+  if (summary.failing.length > 0) return "failing"
+  if (summary.running.length > 0) return "pending"
+  if (summary.total > 0) return "passing"
   return "none"
 }
 
-const FAILED_STATES = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
-const PASSED_STATES = ["SUCCESS"]
-const RUNNING_STATES = ["QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "EXPECTED"]
+// A cancelled run stays attached to the commit after a newer run of the same workflow replaces it. The PR page hides it.
+export function currentSuites(suites: CheckSuiteNode[]): CheckSuiteNode[] {
+  const latest = new Map<string, number>()
+  for (const { workflowRun } of suites) {
+    if (workflowRun) latest.set(workflowRun.workflow.id, Math.max(latest.get(workflowRun.workflow.id) ?? 0, workflowRun.runNumber))
+  }
+  return suites.filter(({ workflowRun }) => !workflowRun || latest.get(workflowRun.workflow.id) === workflowRun.runNumber)
+}
 
-export function summarizeChecks(rollup: StatusCheckRollup | null | undefined, suites: CheckSuiteNode[]): CheckSummary {
+const FAILED_STATES = ["FAILURE", "ERROR"]
+const PASSED_STATES = ["SUCCESS"]
+const RUNNING_STATES = ["PENDING", "EXPECTED"]
+
+export function summarizeChecks(rollup: StatusCheckRollup | null | undefined, allSuites: CheckSuiteNode[]): CheckSummary {
   if (!rollup) return EMPTY_CHECKS
-  const counts = [...rollup.contexts.checkRunCountsByState, ...rollup.contexts.statusContextCountsByState]
-  const count = (states: string[]) => counts.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
-  const failed = count(FAILED_STATES)
-  const running = count(RUNNING_STATES)
-  const passing = count(PASSED_STATES)
+  const suites = currentSuites(allSuites)
+  const statuses = rollup.contexts.statusContextCountsByState
+  const statusCount = (states: string[]) => statuses.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
+  const suiteCount = (pick: (suite: CheckSuiteNode) => number) => suites.reduce((total, suite) => total + pick(suite), 0)
+  const failed = statusCount(FAILED_STATES) + suiteCount((suite) => suite.failing.totalCount)
+  const running = statusCount(RUNNING_STATES) + suiteCount((suite) => suite.running.totalCount)
+  const passing = statusCount(PASSED_STATES) + suiteCount((suite) => suite.passing.totalCount)
+  const total = statuses.reduce((sum, entry) => sum + entry.count, 0) + suiteCount((suite) => suite.all.totalCount)
   return {
     failing: withUnnamed(suites.flatMap((suite) => suite.failing.nodes.map((run) => run.name)), failed),
     running: withUnnamed(suites.flatMap((suite) => suite.running.nodes.map((run) => run.name)), running),
     passing,
-    skipped: rollup.contexts.totalCount - failed - running - passing,
-    total: rollup.contexts.totalCount,
+    skipped: total - failed - running - passing,
+    total,
   }
 }
 
@@ -93,10 +106,13 @@ const PULL_REQUEST_FIELDS = [
   "title state url number isDraft reviewDecision mergeStateStatus createdAt mergedAt additions deletions",
   "reviewThreads(first: 100) { nodes { isResolved } }",
   "commits(last: 1) { nodes { commit {",
-  "statusCheckRollup { state contexts(first: 1) { totalCount checkRunCountsByState { state count } statusContextCountsByState { state count } } }",
+  "statusCheckRollup { contexts(first: 1) { statusContextCountsByState { state count } } }",
   "checkSuites(first: 100) { nodes {",
-  "failing: checkRuns(first: 20, filterBy: { checkType: LATEST, conclusions: [FAILURE, TIMED_OUT, CANCELLED, ACTION_REQUIRED, STARTUP_FAILURE] }) { nodes { name } }",
-  "running: checkRuns(first: 20, filterBy: { checkType: LATEST, status: IN_PROGRESS }) { nodes { name } }",
+  "workflowRun { runNumber workflow { id } }",
+  "all: checkRuns(first: 0, filterBy: { checkType: LATEST }) { totalCount }",
+  "passing: checkRuns(first: 0, filterBy: { checkType: LATEST, conclusions: [SUCCESS] }) { totalCount }",
+  "failing: checkRuns(first: 20, filterBy: { checkType: LATEST, conclusions: [FAILURE, TIMED_OUT, CANCELLED, ACTION_REQUIRED, STARTUP_FAILURE] }) { totalCount nodes { name } }",
+  "running: checkRuns(first: 20, filterBy: { checkType: LATEST, statuses: [QUEUED, IN_PROGRESS, WAITING, PENDING, REQUESTED] }) { totalCount nodes { name } }",
   "} } } } }",
 ].join(" ")
 
@@ -111,12 +127,13 @@ export function pullRequestsQuery(refs: PullRequestRef[]): string {
 export function pullRequestFromNode(ref: PullRequestRef, node: PullRequestNode): PullRequest {
   const { reviewThreads, commits, ...fields } = node
   const commit = commits.nodes[0]?.commit
+  const checkSummary = summarizeChecks(commit?.statusCheckRollup, commit?.checkSuites.nodes ?? [])
   return {
     ...ref,
     ...fields,
     unresolvedThreads: reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
-    checks: rollupChecks(commit?.statusCheckRollup?.state),
-    checkSummary: summarizeChecks(commit?.statusCheckRollup, commit?.checkSuites.nodes ?? []),
+    checks: checksState(checkSummary),
+    checkSummary,
   }
 }
 
