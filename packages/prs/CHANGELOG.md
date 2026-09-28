@@ -1,5 +1,11 @@
 # opencode-prs
 
+## 0.5.3
+
+### Patch Changes
+
+- e3ae8ce: Ignore a workflow run that a newer run of the same workflow replaced. A cancelled older run no longer shows `×` on a PR whose checks all pass on GitHub, and check counts now match the PR page.
+
 ## 0.5.2
 
 ### Patch Changes
