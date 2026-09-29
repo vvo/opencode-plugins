@@ -1,6 +1,6 @@
 {
   "name": "opencode-awake",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "OpenCode plugin: keeps your computer awake while a session works, even with the laptop lid closed",
   "type": "module",
   "exports": {
