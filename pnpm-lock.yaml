@@ -12,6 +12,27 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1
 
+  packages/awake:
+    devDependencies:
+      '@babel/core':
+        specifier: ^7.28.0
+        version: 7.29.7
+      '@babel/preset-typescript':
+        specifier: ^7.27.1
+        version: 7.29.7(@babel/core@7.29.7)
+      '@opencode-ai/plugin':
+        specifier: 1.18.25
+        version: 1.18.25(@opentui/core@0.5.10(typescript@5.9.3)(web-tree-sitter@0.25.10))(@opentui/solid@0.5.10(solid-js@1.9.15)(typescript@5.9.3)(web-tree-sitter@0.25.10))
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      plugin-v2:
+        specifier: npm:@opencode/plugin@2.0.14
+        version: '@opencode/plugin@2.0.14(@opencode/theme@2.0.14(typescript@5.9.3)(web-tree-sitter@0.25.10))(@opentelemetry/api-logs@0.214.0)(@opentelemetry/resources@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.214.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.43.0)(@opentui/core@0.5.10(typescript@5.9.3)(web-tree-sitter@0.25.10))(@opentui/solid@0.5.10(solid-js@1.9.15)(typescript@5.9.3)(web-tree-sitter@0.25.10))(redis@6.2.1(@opentelemetry/api@1.9.0))(solid-js@1.9.15)'
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/cost-details:
     devDependencies:
       '@babel/core':

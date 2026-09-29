@@ -1,0 +1,46 @@
+{
+  "name": "opencode-awake",
+  "version": "0.0.0",
+  "description": "OpenCode plugin: keeps your computer awake while a session works, even with the laptop lid closed",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc",
+    "test": "npm run build && node --test test/awake.test.js",
+    "prepublishOnly": "npm run typecheck && npm test"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "caffeinate",
+    "sleep",
+    "lid",
+    "systemd-inhibit"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vvo/opencode-plugins.git",
+    "directory": "packages/awake"
+  },
+  "homepage": "https://github.com/vvo/opencode-plugins/tree/main/packages/awake#readme",
+  "author": "Vincent Voyer <vincent@codeagain.com>",
+  "license": "MIT",
+  "engines": {
+    "opencode": ">=1.18.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-typescript": "^7.27.1",
+    "@opencode-ai/plugin": "1.18.25",
+    "@types/node": "^24.0.0",
+    "plugin-v2": "npm:@opencode/plugin@2.0.14",
+    "typescript": "^5.9.3"
+  }
+}

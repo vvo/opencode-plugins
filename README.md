@@ -1,6 +1,6 @@
 # OpenCode plugins
 
-Small TUI plugins for [OpenCode](https://opencode.ai). Each package supports OpenCode 1 and OpenCode 2.
+Small plugins for [OpenCode](https://opencode.ai). Each package supports OpenCode 1 and OpenCode 2.
 
 ## Plugins
 
@@ -32,6 +32,14 @@ Shows GitHub pull requests opened by the current session. Every title links to G
 
 ```sh
 opencode2 plugin add opencode-prs
+```
+
+### [opencode-awake](packages/awake)
+
+Keeps your computer awake while a session works, including with the laptop lid closed on macOS and Linux.
+
+```sh
+opencode2 plugin add opencode-awake
 ```
 
 See each plugin README for OpenCode 1 installation and configuration.
