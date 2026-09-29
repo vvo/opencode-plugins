@@ -36,15 +36,19 @@ const HEARTBEAT_EVENTS = new Set([
 
 export function createHold(backends: Backend[]) {
   let on = false
-  const set = (active: boolean) => {
-    if (active === on) return
-    on = active
-    for (const backend of backends) active ? backend.start() : backend.stop()
-  }
   return {
-    set,
-    tick: () => on && backends.forEach((backend) => backend.tick?.()),
-    active: () => on,
+    set(active: boolean) {
+      if (active === on) return
+      on = active
+      for (const backend of backends) {
+        if (active) backend.start()
+        else backend.stop()
+      }
+    },
+    tick() {
+      if (!on) return
+      for (const backend of backends) backend.tick?.()
+    },
   }
 }
 
@@ -53,7 +57,8 @@ export type Hold = ReturnType<typeof createHold>
 export function createTracker(hold: Pick<Hold, "set">, graceMs = 60_000, now = Date.now) {
   const running = new Set<string>()
   const heartbeats = new Map<string, number>()
-  const update = () => hold.set(running.size + heartbeats.size > 0)
+  const size = () => running.size + heartbeats.size
+  const update = () => hold.set(size() > 0)
   return {
     started(sessionID: string) {
       running.add(sessionID)
@@ -79,18 +84,23 @@ export function createTracker(hold: Pick<Hold, "set">, graceMs = 60_000, now = D
       heartbeats.clear()
       update()
     },
-    size: () => running.size + heartbeats.size,
+    size,
   }
 }
 
 export type Tracker = ReturnType<typeof createTracker>
+
+function applyStatus(tracker: Tracker, sessionID: string, status: string | undefined) {
+  if (status === "idle") tracker.ended(sessionID)
+  else tracker.started(sessionID)
+}
 
 export function applyV2Event(tracker: Tracker, event: unknown) {
   const { type, data } = (event ?? {}) as { type?: string; data?: { sessionID?: unknown; status?: { type?: string } } }
   const sessionID = data?.sessionID
   if (typeof type !== "string" || typeof sessionID !== "string") return
   if (type === "session.execution.started") tracker.started(sessionID)
-  else if (type === "session.status") data?.status?.type === "idle" ? tracker.ended(sessionID) : tracker.started(sessionID)
+  else if (type === "session.status") applyStatus(tracker, sessionID, data?.status?.type)
   else if (END_EVENTS.has(type)) tracker.ended(sessionID)
   else if (HEARTBEAT_EVENTS.has(type)) tracker.heartbeat(sessionID)
 }
@@ -100,9 +110,9 @@ export function applyV1Event(tracker: Tracker, event: unknown) {
     type?: string
     properties?: { sessionID?: string; status?: { type?: string }; info?: { id?: string } }
   }
-  if (type === "session.status" && properties?.sessionID) {
-    properties.status?.type === "idle" ? tracker.ended(properties.sessionID) : tracker.started(properties.sessionID)
-  } else if (type === "session.idle" && properties?.sessionID) tracker.ended(properties.sessionID)
+  const sessionID = properties?.sessionID
+  if (type === "session.status" && sessionID) applyStatus(tracker, sessionID, properties?.status?.type)
+  else if (type === "session.idle" && sessionID) tracker.ended(sessionID)
   else if (type === "session.deleted" && properties?.info?.id) tracker.ended(properties.info.id)
 }
 
@@ -169,8 +179,23 @@ function processBackend(name: string, variants: { command: string; args: string[
   }
 }
 
-function pmsetBackend(options: Required<Omit<Options, "lid" | "graceSeconds">>, log: Log): Backend {
-  const disable = (value: 0 | 1) => spawnSync("sudo", ["-n", "/usr/bin/pmset", "-a", "disablesleep", String(value)]).status === 0
+function pmsetOutput(...args: string[]) {
+  return spawnSync("pmset", args, { encoding: "utf8" }).stdout ?? ""
+}
+
+function disableSleep(value: 0 | 1) {
+  return spawnSync("sudo", ["-n", "/usr/bin/pmset", "-a", "disablesleep", String(value)]).status === 0
+}
+
+function watchdogScript(pid: number, seconds: number) {
+  return [
+    `end=$(( $(date +%s) + ${seconds} ))`,
+    `while kill -0 ${pid} 2>/dev/null && [ $(date +%s) -lt $end ]; do sleep 10; done`,
+    "sudo -n /usr/bin/pmset -a disablesleep 0",
+  ].join("; ")
+}
+
+function pmsetBackend(options: { lidMaxMinutes: number; lidMinBattery: number }, log: Log): Backend {
   let allowed: boolean | undefined
   let owned = false
   let startedAt = 0
@@ -183,11 +208,13 @@ function pmsetBackend(options: Required<Omit<Options, "lid" | "graceSeconds">>, 
       if (watchdog?.pid) process.kill(-watchdog.pid, "SIGTERM")
     } catch {}
     watchdog = undefined
-    disable(0)
+    disableSleep(0)
     log("info", `lid sleep restored (${reason})`)
   }
 
-  process.once("exit", () => owned && disable(0))
+  process.once("exit", () => {
+    if (owned) disableSleep(0)
+  })
 
   return {
     name: "pmset",
@@ -197,27 +224,26 @@ function pmsetBackend(options: Required<Omit<Options, "lid" | "graceSeconds">>, 
         if (!allowed) log("info", "closing the lid will still sleep this Mac, see the README to allow pmset without a password")
       }
       if (!allowed) return
-      if (sleepDisabled(spawnSync("pmset", ["-g"], { encoding: "utf8" }).stdout ?? "")) return
-      if (!disable(1)) return log("warn", "pmset disablesleep 1 failed")
+      if (sleepDisabled(pmsetOutput("-g"))) return
+      if (!disableSleep(1)) {
+        log("warn", "pmset disablesleep 1 failed")
+        return
+      }
       owned = true
       startedAt = Date.now()
-      const seconds = Math.round(options.lidMaxMinutes * 60)
-      watchdog = spawn(
-        "/bin/sh",
-        [
-          "-c",
-          `end=$(( $(date +%s) + ${seconds} )); while kill -0 ${process.pid} 2>/dev/null && [ $(date +%s) -lt $end ]; do sleep 10; done; sudo -n /usr/bin/pmset -a disablesleep 0`,
-        ],
-        { detached: true, stdio: "ignore" },
-      )
+      const script = watchdogScript(process.pid, Math.round(options.lidMaxMinutes * 60))
+      watchdog = spawn("/bin/sh", ["-c", script], { detached: true, stdio: "ignore" })
       watchdog.unref()
       log("info", "lid sleep disabled while OpenCode works")
     },
     stop: () => release("sessions idle"),
     tick() {
       if (!owned) return
-      if (Date.now() - startedAt > options.lidMaxMinutes * 60_000) return release("time limit")
-      const battery = parseBattery(spawnSync("pmset", ["-g", "batt"], { encoding: "utf8" }).stdout ?? "")
+      if (Date.now() - startedAt > options.lidMaxMinutes * 60_000) {
+        release("time limit")
+        return
+      }
+      const battery = parseBattery(pmsetOutput("-g", "batt"))
       if (battery.onBattery && battery.percent !== undefined && battery.percent < options.lidMinBattery) {
         release(`battery at ${battery.percent}%`)
       }

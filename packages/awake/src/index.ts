@@ -9,34 +9,35 @@ type Shared = { tracker: Tracker; refs: number; stop(): void }
 const SHARED = Symbol.for("opencode-awake")
 const registry = globalThis as { [SHARED]?: Shared }
 
+function createShared(options: Options, log: Log): Shared {
+  const hold = createHold(platformBackends(options, log))
+  const tracker = createTracker(hold, (options.graceSeconds ?? 60) * 1000)
+  const timer = setInterval(() => {
+    tracker.sweep()
+    hold.tick()
+  }, TICK_MS)
+  timer.unref()
+  return {
+    tracker,
+    refs: 0,
+    stop() {
+      clearInterval(timer)
+      tracker.clear()
+    },
+  }
+}
+
 // OpenCode runs one plugin instance per location, so every instance in the process shares one hold.
 function start(options: Options, log: Log) {
-  let shared = registry[SHARED]
-  if (!shared) {
-    const hold = createHold(platformBackends(options, log))
-    const tracker = createTracker(hold, (options.graceSeconds ?? 60) * 1000)
-    const timer = setInterval(() => {
-      tracker.sweep()
-      hold.tick()
-    }, TICK_MS)
-    timer.unref()
-    shared = registry[SHARED] = {
-      tracker,
-      refs: 0,
-      stop() {
-        clearInterval(timer)
-        tracker.clear()
-      },
-    }
-  }
-  const current = shared
-  current.refs++
+  const shared = (registry[SHARED] ??= createShared(options, log))
+  shared.refs++
   return {
-    tracker: current.tracker,
+    tracker: shared.tracker,
     stop() {
-      if (--current.refs > 0) return
-      current.stop()
-      if (registry[SHARED] === current) delete registry[SHARED]
+      shared.refs--
+      if (shared.refs > 0) return
+      shared.stop()
+      if (registry[SHARED] === shared) delete registry[SHARED]
     },
   }
 }
