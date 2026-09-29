@@ -7,6 +7,7 @@ import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Plugin } from "plugin-v2/tui"
 import type { PanelInput } from "plugin-v2/tui/context"
 import {
+  batchPullRequests,
   extractCreatedPullRequests,
   fitPullRequestLabel,
   groupPullRequests,
@@ -14,8 +15,8 @@ import {
   predatesSession,
   pullRequestChecksIndicator,
   pullRequestCommentsLabel,
-  pullRequestFromNode,
   pullRequestFromRest,
+  pullRequestsFromGraphql,
   pullRequestLabel,
   pullRequestStatusLabel,
   pullRequestsQuery,
@@ -28,8 +29,8 @@ import {
   uniquePullRequests,
   type CheckSummary,
   type ChecksIndicator,
+  type GraphqlResponse,
   type PullRequest,
-  type PullRequestNode,
   type PullRequestRef,
   type RestPullRequest,
 } from "./prs.js"
@@ -248,31 +249,24 @@ function PullRequestRow(props: {
   )
 }
 
-type GraphqlData = Record<string, { pullRequest: PullRequestNode | null } | null>
-
 async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]): Promise<(PullRequest | undefined)[]> {
   if (refs.length === 0) return []
-  const data = await fetchPullRequestsGraphql(refs)
-  if (data) {
-    return refs.map((ref, index) => {
-      const node = data[`pr${index}`]?.pullRequest
-      return node ? pullRequestFromNode(ref, node) : undefined
-    })
-  }
-  // REST has its own rate limit, so it still answers when GraphQL is exhausted.
+  const batches = await Promise.all(batchPullRequests(refs).map(fetchPullRequestsGraphql))
+  const results = batches.flat()
+  // REST has its own rate limit, so it still answers when GraphQL is exhausted or rejects a PR.
   const previous = new Map(cached.map((pr) => [pr.url, pr]))
-  return Promise.all(refs.map((ref) => fetchPullRequestRest(ref, previous.get(ref.url))))
+  return Promise.all(results.map((result, index) => result ?? fetchPullRequestRest(refs[index], previous.get(refs[index].url))))
 }
 
-async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<GraphqlData | undefined> {
+async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<(PullRequest | undefined)[]> {
   // gh exits non-zero when one alias fails to resolve but still prints the data for the others.
   const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${pullRequestsQuery(refs)}`])
     .then((result) => result.stdout)
     .catch((error: { stdout?: string }) => error.stdout ?? "")
   try {
-    return (JSON.parse(stdout) as { data?: GraphqlData | null }).data ?? undefined
+    return pullRequestsFromGraphql(refs, JSON.parse(stdout) as GraphqlResponse)
   } catch {
-    return undefined
+    return refs.map(() => undefined)
   }
 }
 

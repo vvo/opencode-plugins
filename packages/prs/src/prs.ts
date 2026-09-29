@@ -124,6 +124,35 @@ export function pullRequestsQuery(refs: PullRequestRef[]): string {
   return `query { ${selections.join(" ")} } fragment fields on PullRequest { ${PULL_REQUEST_FIELDS} }`
 }
 
+// vercel/api PRs carry about 30 check suites each; five PRs in one query trip GitHub's resource limits.
+export const PULL_REQUEST_BATCH_SIZE = 3
+
+export function batchPullRequests(refs: PullRequestRef[]): PullRequestRef[][] {
+  const batches: PullRequestRef[][] = []
+  for (let index = 0; index < refs.length; index += PULL_REQUEST_BATCH_SIZE) batches.push(refs.slice(index, index + PULL_REQUEST_BATCH_SIZE))
+  return batches
+}
+
+export type GraphqlResponse = {
+  data?: Record<string, { pullRequest: PullRequestNode | null } | null> | null
+  errors?: { path?: (string | number)[] }[]
+}
+
+/** A PR whose alias has errors comes back with nulls in required fields, so it is left undefined for the REST fallback. */
+export function pullRequestsFromGraphql(refs: PullRequestRef[], response: GraphqlResponse): (PullRequest | undefined)[] {
+  const failed = new Set((response.errors ?? []).map((error) => error.path?.[0]))
+  return refs.map((ref, index) => {
+    const alias = `pr${index}`
+    const node = response.data?.[alias]?.pullRequest
+    if (!node || failed.has(alias)) return undefined
+    try {
+      return pullRequestFromNode(ref, node)
+    } catch {
+      return undefined
+    }
+  })
+}
+
 export function pullRequestFromNode(ref: PullRequestRef, node: PullRequestNode): PullRequest {
   const { reviewThreads, commits, ...fields } = node
   const commit = commits.nodes[0]?.commit
