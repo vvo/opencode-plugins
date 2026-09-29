@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { resolve } from "node:path"
 
@@ -10,6 +10,11 @@ const packages = [
   { name: "opencode-cost-details", directory: "packages/cost-details/dist" },
   { name: "opencode-prs", directory: "packages/prs/dist" },
 ].map((plugin) => ({ ...plugin, target: resolve(root, plugin.directory) }))
+const serverPackages = [{ name: "opencode-awake", directory: "packages/awake" }].map((plugin) => ({
+  ...plugin,
+  target: resolve(root, plugin.directory, "dist/index.js"),
+  link: resolve(configDir, "plugins", `${plugin.name}.js`),
+}))
 
 function isPackagePlugin(plugin, { name, directory, target }) {
   if (typeof plugin !== "string") return false
@@ -22,7 +27,12 @@ async function link() {
   const removed = configured.filter((plugin) => packages.some((item) => isPackagePlugin(plugin, item)))
   const paths = packages.map((plugin) => plugin.target)
   cli.plugins = [...configured.filter((plugin) => !removed.includes(plugin)), ...paths]
-  await writeFile(statePath, `${JSON.stringify({ removed, paths }, null, 2)}\n`)
+  for (const plugin of serverPackages) {
+    await mkdir(resolve(configDir, "plugins"), { recursive: true })
+    await writeFile(plugin.link, `export { default } from ${JSON.stringify(plugin.target)}\n`)
+    console.log(`linked ${plugin.link}`)
+  }
+  await writeFile(statePath, `${JSON.stringify({ removed, paths, links: serverPackages.map((p) => p.link) }, null, 2)}\n`)
   await writeFile(cliPath, `${JSON.stringify(cli, null, 2)}\n`)
   console.log(`updated ${cliPath}`)
 }
@@ -34,8 +44,9 @@ async function unlinkAll() {
     ...(cli.plugins ?? []).filter((plugin) => !state.paths.includes(plugin)),
     ...state.removed.filter((plugin) => !(cli.plugins ?? []).includes(plugin)),
   ]
+  for (const path of state.links ?? []) await rm(path, { force: true })
   await writeFile(cliPath, `${JSON.stringify(cli, null, 2)}\n`)
-  await import("node:fs/promises").then(({ unlink }) => unlink(statePath))
+  await rm(statePath)
   console.log(`restored ${cliPath}`)
 }
 

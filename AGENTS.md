@@ -1,6 +1,6 @@
 # OpenCode plugins
 
-This repository publishes independent OpenCode TUI plugins from `packages/`.
+This repository publishes independent OpenCode plugins from `packages/`.
 
 ## Commands
 
@@ -28,7 +28,7 @@ This repository publishes independent OpenCode TUI plugins from `packages/`.
 ## Plugin compatibility
 
 - Every plugin supports OpenCode 1 and OpenCode 2 from one npm version.
-- The default export keeps `{ id, tui, setup }`.
+- The default export keeps `{ id, tui, setup }`. Server plugins (`opencode-awake`) export `{ id, setup, server }` instead, and `dev:link` writes a one-line re-export for them in `~/.config/opencode/plugins/`.
 - `tui` is the OpenCode 1 adapter. `setup` is the OpenCode 2 adapter.
 - Never import `@opencode-ai/plugin` at runtime. Type-only imports are safe.
 - Keep `@opentui/solid` and `solid-js` as optional peers.

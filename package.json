@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "build": "pnpm --recursive build",
-    "dev": "node --watch-path=packages/cost-details/src --watch-path=packages/prs/src scripts/build.mjs",
+    "dev": "node --watch-path=packages/cost-details/src --watch-path=packages/prs/src --watch-path=packages/awake/src scripts/build.mjs",
     "dev:link": "pnpm build && node scripts/dev-link.mjs link",
     "dev:unlink": "node scripts/dev-link.mjs unlink",
     "typecheck": "pnpm --recursive typecheck",
