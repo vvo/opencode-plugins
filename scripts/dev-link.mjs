@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { resolve } from "node:path"
 
@@ -12,18 +12,13 @@ const packages = [
 ].map((plugin) => ({ ...plugin, target: resolve(root, plugin.directory) }))
 const serverPackages = [{ name: "opencode-awake", directory: "packages/awake" }].map((plugin) => ({
   ...plugin,
-  target: resolve(root, plugin.directory),
-  link: resolve(configDir, "plugins", plugin.name),
+  target: resolve(root, plugin.directory, "dist/index.js"),
+  link: resolve(configDir, "plugins", `${plugin.name}.js`),
 }))
 
 function isPackagePlugin(plugin, { name, directory, target }) {
   if (typeof plugin !== "string") return false
   return plugin === name || plugin.startsWith(`${name}@`) || plugin === target || plugin.endsWith(`/${directory}`)
-}
-
-async function removeLink(path) {
-  const stat = await lstat(path).catch(() => undefined)
-  if (stat?.isSymbolicLink()) await unlink(path)
 }
 
 async function link() {
@@ -34,8 +29,7 @@ async function link() {
   cli.plugins = [...configured.filter((plugin) => !removed.includes(plugin)), ...paths]
   for (const plugin of serverPackages) {
     await mkdir(resolve(configDir, "plugins"), { recursive: true })
-    await removeLink(plugin.link)
-    await symlink(plugin.target, plugin.link)
+    await writeFile(plugin.link, `export { default } from ${JSON.stringify(plugin.target)}\n`)
     console.log(`linked ${plugin.link}`)
   }
   await writeFile(statePath, `${JSON.stringify({ removed, paths, links: serverPackages.map((p) => p.link) }, null, 2)}\n`)
@@ -50,9 +44,9 @@ async function unlinkAll() {
     ...(cli.plugins ?? []).filter((plugin) => !state.paths.includes(plugin)),
     ...state.removed.filter((plugin) => !(cli.plugins ?? []).includes(plugin)),
   ]
-  for (const path of state.links ?? []) await removeLink(path)
+  for (const path of state.links ?? []) await rm(path, { force: true })
   await writeFile(cliPath, `${JSON.stringify(cli, null, 2)}\n`)
-  await unlink(statePath)
+  await rm(statePath)
   console.log(`restored ${cliPath}`)
 }
 
