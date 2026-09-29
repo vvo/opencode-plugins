@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { batchPullRequests, extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsFromGraphql, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -41,6 +41,30 @@ test("batches every pull request into one GraphQL query", () => {
   assert.match(query, /pr0: repository\(owner: "vvo", name: "opencode-plugins"\) \{ pullRequest\(number: 42\) \{ \.\.\.fields \} \}/)
   assert.match(query, /pr1: repository\(owner: "vercel", name: "api"\) \{ pullRequest\(number: 7\)/)
   assert.match(query, /fragment fields on PullRequest \{ title state url number isDraft reviewDecision mergeStateStatus/)
+})
+
+test("splits pull requests into small GraphQL batches", () => {
+  const refs = [1, 2, 3, 4, 5].map((number) => ({ ...ref, number }))
+  assert.deepEqual(batchPullRequests(refs).map((batch) => batch.map((pr) => pr.number)), [[1, 2, 3], [4, 5]])
+  assert.deepEqual(batchPullRequests([]), [])
+})
+
+test("leaves pull requests GitHub rejected in a partial GraphQL response for the REST fallback", () => {
+  const node = {
+    title: "Ok", state: "OPEN", url: ref.url, number: 42, isDraft: false, reviewDecision: null, mergeStateStatus: null,
+    createdAt: "2026-09-21T14:08:09Z", mergedAt: null, additions: 1, deletions: 1,
+    reviewThreads: { nodes: [] },
+    commits: { nodes: [{ commit: { statusCheckRollup: rollup(), checkSuites: { nodes: [suite({ passing: 1 })] } } }] },
+  }
+  const broken = { ...node, commits: { nodes: [{ commit: { statusCheckRollup: rollup(), checkSuites: { nodes: [{ ...suite(), failing: null }] } } }] } }
+  const refs = [ref, { ...ref, number: 43 }, { ...ref, number: 44 }, { ...ref, number: 45 }]
+  const results = pullRequestsFromGraphql(refs, {
+    data: { pr0: { pullRequest: node }, pr1: { pullRequest: broken }, pr2: { pullRequest: node }, pr3: null },
+    errors: [{ type: "RESOURCE_LIMITS_EXCEEDED", path: ["pr2", "pullRequest", "commits", "nodes", 0, "commit", "checkSuites", "nodes", 3, "failing", "nodes"] }],
+  })
+  assert.equal(results[0]?.title, "Ok")
+  assert.deepEqual(results.slice(1), [undefined, undefined, undefined])
+  assert.deepEqual(pullRequestsFromGraphql(refs.slice(0, 1), { data: null }), [undefined])
 })
 
 test("builds a pull request from a GraphQL node", () => {
