@@ -219,11 +219,13 @@ function pmsetBackend(options: { lidMaxMinutes: number; lidMinBattery: number },
   return {
     name: "pmset",
     start() {
-      if (allowed === undefined) {
-        allowed = spawnSync("sudo", ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"]).status === 0
-        if (!allowed) log("info", "closing the lid will still sleep this Mac, see the README to allow pmset without a password")
+      const permitted = spawnSync("sudo", ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"]).status === 0
+      if (!permitted) {
+        if (allowed === undefined) log("info", "closing the lid will still sleep this Mac, see the README to allow pmset without a password")
+        allowed = false
+        return
       }
-      if (!allowed) return
+      allowed = true
       if (sleepDisabled(pmsetOutput("-g"))) return
       if (!disableSleep(1)) {
         log("warn", "pmset disablesleep 1 failed")
