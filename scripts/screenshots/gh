@@ -57,6 +57,8 @@ def node(owner, repo, number):
     }
 
 args = sys.argv[1:]
+if args[1:2] == ["--hostname"]:
+    del args[1:3]
 if args[:2] == ["api", "graphql"]:
     query = next(a for a in args if a.startswith("query=")).removeprefix("query=")
     aliases = re.findall(r'(pr\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\) \{ pullRequest\(number: (\d+)\)', query)

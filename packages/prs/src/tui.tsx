@@ -10,6 +10,7 @@ import {
   extractCreatedPullRequests,
   fitPullRequestLabel,
   groupPullRequests,
+  groupPullRequestsByHost,
   marquee,
   predatesSession,
   pullRequestChecksIndicator,
@@ -252,7 +253,17 @@ type GraphqlData = Record<string, { pullRequest: PullRequestNode | null } | null
 
 async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]): Promise<(PullRequest | undefined)[]> {
   if (refs.length === 0) return []
-  const data = await fetchPullRequestsGraphql(refs)
+  const previous = new Map(cached.map((pr) => [pr.url, pr]))
+  const results = new Map<string, PullRequest | undefined>()
+  await Promise.all([...groupPullRequestsByHost(refs)].map(async ([host, hostRefs]) => {
+    const fetched = await fetchHostPullRequests(host, hostRefs, previous)
+    hostRefs.forEach((ref, index) => results.set(ref.url, fetched[index]))
+  }))
+  return refs.map((ref) => results.get(ref.url))
+}
+
+async function fetchHostPullRequests(host: string, refs: PullRequestRef[], previous: Map<string, PullRequest>): Promise<(PullRequest | undefined)[]> {
+  const data = await fetchPullRequestsGraphql(host, refs)
   if (data) {
     return refs.map((ref, index) => {
       const node = data[`pr${index}`]?.pullRequest
@@ -260,13 +271,12 @@ async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]):
     })
   }
   // REST has its own rate limit, so it still answers when GraphQL is exhausted.
-  const previous = new Map(cached.map((pr) => [pr.url, pr]))
   return Promise.all(refs.map((ref) => fetchPullRequestRest(ref, previous.get(ref.url))))
 }
 
-async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<GraphqlData | undefined> {
+async function fetchPullRequestsGraphql(host: string, refs: PullRequestRef[]): Promise<GraphqlData | undefined> {
   // gh exits non-zero when one alias fails to resolve but still prints the data for the others.
-  const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${pullRequestsQuery(refs)}`])
+  const stdout = await execFileAsync("gh", ["api", "--hostname", host, "graphql", "-f", `query=${pullRequestsQuery(refs)}`])
     .then((result) => result.stdout)
     .catch((error: { stdout?: string }) => error.stdout ?? "")
   try {
@@ -278,7 +288,7 @@ async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<Graphql
 
 async function fetchPullRequestRest(ref: PullRequestRef, cached: PullRequest | undefined): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["api", `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`])
+    const { stdout } = await execFileAsync("gh", ["api", "--hostname", ref.host, `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`])
     return pullRequestFromRest(ref, JSON.parse(stdout) as RestPullRequest, cached)
   } catch {
     return undefined
