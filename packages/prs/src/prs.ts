@@ -376,6 +376,39 @@ export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestR
   return [...new Map([...refs].map((ref) => [ref.url, ref])).values()]
 }
 
+export type ChildSession = { id: string; created: number; updated: number }
+export type DescendantRefs = { updated: number; refs: PullRequestRef[]; hasChildren: boolean }
+export type DescendantLoader = {
+  children(sessionID: string): Promise<ChildSession[]>
+  refs(session: ChildSession): Promise<PullRequestRef[]>
+}
+
+/** PRs created by subagent sessions, at any depth. A session whose `updated` time has not moved keeps its cached refs. */
+export async function descendantPullRequests(
+  sessionID: string,
+  known: Map<string, DescendantRefs>,
+  load: DescendantLoader,
+): Promise<PullRequestRef[]> {
+  const refs: PullRequestRef[] = []
+  const seen = new Set([sessionID])
+  async function visit(child: ChildSession): Promise<void> {
+    if (seen.has(child.id)) return
+    seen.add(child.id)
+    const cached = known.get(child.id)
+    const changed = cached?.updated !== child.updated
+    // An idle session cannot start new subagents, but the ones it started may still be running.
+    const [childRefs, children] = await Promise.all([
+      changed || !cached ? load.refs(child) : cached.refs,
+      changed || cached?.hasChildren ? load.children(child.id) : [],
+    ])
+    known.set(child.id, { updated: child.updated, refs: childRefs, hasChildren: children.length > 0 })
+    refs.push(...childRefs)
+    await Promise.all(children.map(visit))
+  }
+  await Promise.all((await load.children(sessionID)).map(visit))
+  return refs
+}
+
 // Forks copy parent messages with their original timestamps, so anything older than the session came from the parent.
 export function predatesSession(message: { time?: { created?: number } }, sessionCreated: number | undefined): boolean {
   const created = message.time?.created

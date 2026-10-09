@@ -10,6 +10,7 @@ import {
   ACTIVE_REFRESH_MS,
   checkSuiteIdsNeedingRuns,
   checkSuiteRunsQuery,
+  descendantPullRequests,
   extractCreatedPullRequests,
   isSettled,
   refreshInterval,
@@ -34,6 +35,8 @@ import {
   type CheckSuiteRuns,
   type CheckSummary,
   type ChecksIndicator,
+  type ChildSession,
+  type DescendantRefs,
   type PullRequest,
   type PullRequestNode,
   type PullRequestRef,
@@ -63,6 +66,10 @@ type ShellToolPart = {
 type SessionCache = {
   history: PullRequestRef[]
   historyPromise?: Promise<PullRequestRef[]>
+  /** PRs created by subagent sessions, with the per-session refs that avoid re-reading idle ones. */
+  descendants: PullRequestRef[]
+  descendantRefs: Map<string, DescendantRefs>
+  descendantsPromise?: Promise<PullRequestRef[]>
   prs: PullRequest[]
   /** Merged and closed PRs by URL, never fetched again. The panel's refresh clears it. */
   settled: Map<string, PullRequest>
@@ -132,7 +139,7 @@ function getSessionCache(sessionID: string): SessionCache {
   let cache = sessionCache.get(sessionID)
   if (!cache) {
     const [view, setView] = createSignal({ prs: [] as PullRequest[], unavailable: false })
-    cache = { history: [], prs: [], settled: new Map(), fetchedAt: 0, refsKey: "", unavailable: false, view, setView }
+    cache = { history: [], descendants: [], descendantRefs: new Map(), prs: [], settled: new Map(), fetchedAt: 0, refsKey: "", unavailable: false, view, setView }
     sessionCache.set(sessionID, cache)
   }
   return cache
@@ -350,8 +357,8 @@ function refsFromV1(api: TuiPluginApi, sessionID: string): PullRequestRef[] {
   return refs
 }
 
-async function refsFromV2History(context: Context, sessionID: string): Promise<PullRequestRef[]> {
-  const sessionCreated = await sessionCreatedV2(context, sessionID)
+async function refsFromV2History(context: Context, sessionID: string, created?: number): Promise<PullRequestRef[]> {
+  const sessionCreated = created ?? await sessionCreatedV2(context, sessionID)
   const refs: PullRequestRef[] = []
   let cursor: string | undefined
   let page = 0
@@ -371,6 +378,38 @@ async function sessionCreatedV2(context: Context, sessionID: string): Promise<nu
   const created = context.data.session.get(sessionID)?.time.created
   if (created !== undefined) return created
   return context.client.session.get({ sessionID }).then((session) => session.time.created).catch(() => undefined)
+}
+
+function childSession(session: { id: string; time: { created: number; updated: number } }): ChildSession {
+  return { id: session.id, created: session.time.created, updated: session.time.updated }
+}
+
+async function childSessionsV2(context: Context, parentID: string): Promise<ChildSession[]> {
+  const children: ChildSession[] = []
+  let cursor: string | undefined
+  let page = 0
+  do {
+    const response = await context.client.session.list({ parentID, limit: 200, ...(cursor ? { cursor } : { order: "desc" }) })
+    children.push(...response.data.map(childSession))
+    if (response.data.length < 200) break
+    cursor = response.cursor.next ?? undefined
+    page++
+  } while (cursor && page < MAX_HISTORY_PAGES)
+  return children
+}
+
+function descendantsV2(context: Context, sessionID: string) {
+  return (known: Map<string, DescendantRefs>) => descendantPullRequests(sessionID, known, {
+    children: (parentID) => childSessionsV2(context, parentID),
+    refs: (child) => refsFromV2History(context, child.id, child.created),
+  })
+}
+
+function descendantsV1(api: TuiPluginApi, sessionID: string) {
+  return (known: Map<string, DescendantRefs>) => descendantPullRequests(sessionID, known, {
+    children: async (parentID) => (await api.client.session.children({ sessionID: parentID })).data?.map(childSession) ?? [],
+    refs: (child) => refsFromV1History(api, child.id),
+  })
 }
 
 async function refsFromV1History(api: TuiPluginApi, sessionID: string): Promise<PullRequestRef[]> {
@@ -393,6 +432,7 @@ function PullRequests(props: {
   sessionID: string
   refs: Accessor<PullRequestRef[]>
   history: () => Promise<PullRequestRef[]>
+  descendants: (known: Map<string, DescendantRefs>) => Promise<PullRequestRef[]>
   sync?: () => Promise<void>
   focused?: Accessor<boolean>
   windowFocused?: Accessor<boolean>
@@ -434,7 +474,7 @@ function PullRequests(props: {
   }
   const refresh = async (force = false) => {
     while (mounted) {
-      const refs = uniquePullRequests([...cache.history, ...props.refs()])
+      const refs = uniquePullRequests([...cache.history, ...cache.descendants, ...props.refs()])
       const refsKey = pullRequestRefsKey(refs)
       if (!force && refsKey === cache.refsKey) return
       force = false
@@ -460,12 +500,21 @@ function PullRequests(props: {
       showCache()
     }
   }
+  const loadDescendants = async () => {
+    const descendantsPromise = cache.descendantsPromise ??= props.descendants(cache.descendantRefs)
+      .catch(() => cache.descendants)
+      .finally(() => {
+        cache.descendantsPromise = undefined
+      })
+    cache.descendants = await descendantsPromise
+  }
   const revalidate = async () => {
     await props.sync?.().catch(() => undefined)
     const historyPromise = cache.historyPromise ??= props.history().catch(() => cache.history).finally(() => {
       cache.historyPromise = undefined
     })
-    cache.history = await historyPromise
+    const [history] = await Promise.all([historyPromise, loadDescendants()])
+    cache.history = history
     await refresh(true)
   }
   createEffect(() => {
@@ -476,9 +525,10 @@ function PullRequests(props: {
   })
   onMount(() => {
     void revalidate()
-    // Ticks at the fast rate and skips until the PRs' own interval has passed.
+    // Ticks at the fast rate: picks up PRs a subagent just created, and refetches once the PRs' own interval has passed.
     const interval = setInterval(() => {
-      if (focused && Date.now() - cache.fetchedAt >= refreshInterval(cache.prs)) void refresh(true)
+      if (!focused) return
+      void loadDescendants().then(() => refresh(Date.now() - cache.fetchedAt >= refreshInterval(cache.prs)))
     }, ACTIVE_REFRESH_MS)
     onCleanup(() => {
       mounted = false
@@ -709,6 +759,7 @@ function setup(context: Context) {
           context.data.session.get(sessionID)?.time.created,
         )}
         history={() => refsFromV2History(context, sessionID)}
+        descendants={descendantsV2(context, sessionID)}
         sync={() => context.data.session.message.sync(sessionID)}
         focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
           tab.sessionID === context.data.session.root(sessionID) && tab.active
@@ -748,6 +799,7 @@ const tui: TuiPlugin = async (api) => {
           sessionID={props.session_id}
           refs={() => refsFromV1(api, props.session_id)}
           history={() => refsFromV1History(api, props.session_id)}
+          descendants={descendantsV1(api, props.session_id)}
           windowFocused={windowFocus.focused}
           foreground={api.theme.current.text}
           subdued={api.theme.current.textMuted}

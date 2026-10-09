@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, descendantPullRequests, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -20,6 +20,40 @@ test("flags messages inherited from a forked parent", () => {
   assert.equal(predatesSession({ time: { created: 1001 } }, 1000), false)
   assert.equal(predatesSession({ time: { created: 999 } }, undefined), false)
   assert.equal(predatesSession({}, 1000), false)
+})
+
+test("finds PRs created by subagents and grandchildren, re-reading only sessions that changed", async () => {
+  const pr = (number) => ({ owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}` })
+  const session = (id, updated = 1) => ({ id, created: 0, updated })
+  const tree = { root: [session("a"), session("b")], a: [session("a1")], b: [], a1: [] }
+  const created = { a: [pr(1)], b: [], a1: [pr(2)] }
+  const reads = []
+  const load = {
+    children: async (id) => tree[id],
+    refs: async (child) => {
+      reads.push(child.id)
+      return created[child.id]
+    },
+  }
+  const known = new Map()
+  const numbers = async () => (await descendantPullRequests("root", known, load)).map((ref) => ref.number).sort()
+  assert.deepEqual(await numbers(), [1, 2])
+  assert.deepEqual(reads.sort(), ["a", "a1", "b"])
+
+  reads.length = 0
+  assert.deepEqual(await numbers(), [1, 2])
+  assert.deepEqual(reads, [])
+
+  tree.root[1] = session("b", 2)
+  created.b = [pr(3)]
+  assert.deepEqual(await numbers(), [1, 2, 3])
+  assert.deepEqual(reads, ["b"])
+
+  reads.length = 0
+  tree.a = [session("a1", 2)]
+  created.a1 = [pr(2), pr(4)]
+  assert.deepEqual(await numbers(), [1, 2, 3, 4])
+  assert.deepEqual(reads, ["a1"])
 })
 
 const ref = { owner: "vvo", repo: "opencode-plugins", number: 42, url: "https://github.com/vvo/opencode-plugins/pull/42" }
