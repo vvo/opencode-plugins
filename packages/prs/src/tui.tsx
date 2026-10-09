@@ -7,7 +7,12 @@ import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Plugin } from "plugin-v2/tui"
 import type { PanelInput } from "plugin-v2/tui/context"
 import {
+  ACTIVE_REFRESH_MS,
+  checkSuiteIdsNeedingRuns,
+  checkSuiteRunsQuery,
   extractCreatedPullRequests,
+  isSettled,
+  refreshInterval,
   fitPullRequestLabel,
   groupPullRequests,
   marquee,
@@ -26,6 +31,7 @@ import {
   slackPullRequestsTexty,
   sortPullRequests,
   uniquePullRequests,
+  type CheckSuiteRuns,
   type CheckSummary,
   type ChecksIndicator,
   type PullRequest,
@@ -35,7 +41,6 @@ import {
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
-const REFRESH_MS = 30_000
 const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
@@ -59,6 +64,9 @@ type SessionCache = {
   history: PullRequestRef[]
   historyPromise?: Promise<PullRequestRef[]>
   prs: PullRequest[]
+  /** Merged and closed PRs by URL, never fetched again. The panel's refresh clears it. */
+  settled: Map<string, PullRequest>
+  fetchedAt: number
   refsKey: string
   unavailable: boolean
   refreshPromise?: Promise<void>
@@ -100,11 +108,31 @@ function run() {
   }
 }
 
+type FocusEmitter = { on?: (event: string, listener: () => void) => unknown; off?: (event: string, listener: () => void) => unknown }
+
+/** False while the terminal window is in the background. Terminals without focus reporting stay true. */
+function terminalFocus(renderer: unknown): { focused: Accessor<boolean>; dispose: () => void } {
+  const [focused, setFocused] = createSignal(true)
+  const emitter = renderer as FocusEmitter | undefined
+  if (typeof emitter?.on !== "function") return { focused, dispose: () => undefined }
+  const onFocus = () => setFocused(true)
+  const onBlur = () => setFocused(false)
+  emitter.on("focus", onFocus)
+  emitter.on("blur", onBlur)
+  return {
+    focused,
+    dispose: () => {
+      emitter.off?.("focus", onFocus)
+      emitter.off?.("blur", onBlur)
+    },
+  }
+}
+
 function getSessionCache(sessionID: string): SessionCache {
   let cache = sessionCache.get(sessionID)
   if (!cache) {
     const [view, setView] = createSignal({ prs: [] as PullRequest[], unavailable: false })
-    cache = { history: [], prs: [], refsKey: "", unavailable: false, view, setView }
+    cache = { history: [], prs: [], settled: new Map(), fetchedAt: 0, refsKey: "", unavailable: false, view, setView }
     sessionCache.set(sessionID, cache)
   }
   return cache
@@ -248,15 +276,18 @@ function PullRequestRow(props: {
   )
 }
 
-type GraphqlData = Record<string, { pullRequest: PullRequestNode | null } | null>
+type PullRequestsData = Record<string, { pullRequest: PullRequestNode | null } | null>
+type CheckSuiteRunsData = { nodes: (CheckSuiteRuns | null)[] }
 
 async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]): Promise<(PullRequest | undefined)[]> {
   if (refs.length === 0) return []
-  const data = await fetchPullRequestsGraphql(refs)
+  const data = await graphql<PullRequestsData>(pullRequestsQuery(refs))
   if (data) {
+    const nodes = refs.map((_, index) => data[`pr${index}`]?.pullRequest)
+    const runs = await fetchCheckSuiteRuns(checkSuiteIdsNeedingRuns(nodes))
     return refs.map((ref, index) => {
-      const node = data[`pr${index}`]?.pullRequest
-      return node ? pullRequestFromNode(ref, node) : undefined
+      const node = nodes[index]
+      return node ? pullRequestFromNode(ref, node, runs) : undefined
     })
   }
   // REST has its own rate limit, so it still answers when GraphQL is exhausted.
@@ -264,13 +295,19 @@ async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]):
   return Promise.all(refs.map((ref) => fetchPullRequestRest(ref, previous.get(ref.url))))
 }
 
-async function fetchPullRequestsGraphql(refs: PullRequestRef[]): Promise<GraphqlData | undefined> {
+async function fetchCheckSuiteRuns(ids: string[]): Promise<Map<string, CheckSuiteRuns>> {
+  if (ids.length === 0) return new Map()
+  const data = await graphql<CheckSuiteRunsData>(checkSuiteRunsQuery(ids))
+  return new Map((data?.nodes ?? []).flatMap((suite) => suite ? [[suite.id, suite] as const] : []))
+}
+
+async function graphql<T>(query: string): Promise<T | undefined> {
   // gh exits non-zero when one alias fails to resolve but still prints the data for the others.
-  const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${pullRequestsQuery(refs)}`])
+  const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${query}`])
     .then((result) => result.stdout)
     .catch((error: { stdout?: string }) => error.stdout ?? "")
   try {
-    return (JSON.parse(stdout) as { data?: GraphqlData | null }).data ?? undefined
+    return (JSON.parse(stdout) as { data?: T | null }).data ?? undefined
   } catch {
     return undefined
   }
@@ -358,6 +395,7 @@ function PullRequests(props: {
   history: () => Promise<PullRequestRef[]>
   sync?: () => Promise<void>
   focused?: Accessor<boolean>
+  windowFocused?: Accessor<boolean>
   foreground: string | RGBA
   subdued: string | RGBA
   link: string | RGBA
@@ -388,7 +426,7 @@ function PullRequests(props: {
     />
   )
   let mounted = true
-  let focused = props.focused?.() ?? true
+  let focused = (props.focused?.() ?? true) && (props.windowFocused?.() ?? true)
   let observedRefsKey = pullRequestRefsKey(props.refs())
   const showCache = () => {
     if (!mounted) return
@@ -401,8 +439,13 @@ function PullRequests(props: {
       if (!force && refsKey === cache.refsKey) return
       force = false
       if (!cache.refreshPromise) {
-        cache.refreshPromise = fetchPullRequests(refs, cache.prs).then((results) => {
-          const failed = refs.length > 0 && results.every((result) => result === undefined)
+        const unsettled = refs.filter((ref) => !cache.settled.has(ref.url))
+        cache.refreshPromise = fetchPullRequests(unsettled, cache.prs).then((fetched) => {
+          const fresh = new Map(unsettled.map((ref, index) => [ref.url, fetched[index]]))
+          const results = refs.map((ref) => cache.settled.get(ref.url) ?? fresh.get(ref.url))
+          for (const pr of fetched) if (pr && isSettled(pr)) cache.settled.set(pr.url, pr)
+          const failed = unsettled.length > 0 && fetched.every((result) => result === undefined)
+          if (!failed) cache.fetchedAt = Date.now()
           if (!failed || cache.prs.length === 0) {
             const next = mergePullRequests(refs, results, cache.prs)
             if (next.length !== cache.prs.length || next.some((pr, index) => pr !== cache.prs[index])) cache.prs = next
@@ -433,16 +476,18 @@ function PullRequests(props: {
   })
   onMount(() => {
     void revalidate()
+    // Ticks at the fast rate and skips until the PRs' own interval has passed.
     const interval = setInterval(() => {
-      if (focused) void refresh(true)
-    }, REFRESH_MS)
+      if (focused && Date.now() - cache.fetchedAt >= refreshInterval(cache.prs)) void refresh(true)
+    }, ACTIVE_REFRESH_MS)
     onCleanup(() => {
       mounted = false
       clearInterval(interval)
     })
   })
   createEffect(() => {
-    const next = props.focused?.() ?? true
+    // A hidden tab or a terminal window in the background does not poll; coming back refreshes at once.
+    const next = (props.focused?.() ?? true) && (props.windowFocused?.() ?? true)
     if (next === focused) return
     focused = next
     if (focused) void revalidate()
@@ -506,9 +551,10 @@ function PullRequestPanel(props: {
   const copyActive = () => {
     if (active().length > 0) void props.copy(slackPullRequests(active()), slackPullRequestsHtml(active()), slackPullRequestsTexty(active()))
   }
-  // Clearing the refs key makes the sidebar's next refs effect run a full refresh.
+  // Clearing the refs key makes the sidebar's next refs effect run a full refresh, reopened PRs included.
   const refresh = () => {
     cache.refsKey = ""
+    cache.settled.clear()
     props.context.data.session.message.invalidate(props.panel.sessionID)
   }
 
@@ -622,6 +668,8 @@ function setup(context: Context) {
   const cleanups: (() => void)[] = []
   // Panels and keymap layers arrived together in opencode 2.0.12; older hosts keep the sidebar only.
   const panels = typeof context.ui.panel?.open === "function" && typeof context.keymap?.layer === "function"
+  const windowFocus = terminalFocus(context.renderer)
+  cleanups.push(windowFocus.dispose)
   if (panels) {
     cleanups.push(context.ui.slot({
       append: "session.panel",
@@ -665,6 +713,7 @@ function setup(context: Context) {
         focused={() => !context.ui.tabs.enabled() || context.ui.tabs.list().some((tab) => (
           tab.sessionID === context.data.session.root(sessionID) && tab.active
         ))}
+        windowFocused={windowFocus.focused}
         foreground={context.theme.text.base}
         subdued={context.theme.text.muted}
         link={context.theme.markdown.link}
@@ -690,6 +739,7 @@ async function copyWithToast(context: Context, plain: string, html: string, slac
 
 const tui: TuiPlugin = async (api) => {
   if (typeof api.slots?.register !== "function") return
+  const windowFocus = terminalFocus(api.renderer)
   api.slots.register({
     order: 240,
     slots: {
@@ -698,6 +748,7 @@ const tui: TuiPlugin = async (api) => {
           sessionID={props.session_id}
           refs={() => refsFromV1(api, props.session_id)}
           history={() => refsFromV1History(api, props.session_id)}
+          windowFocused={windowFocus.focused}
           foreground={api.theme.current.text}
           subdued={api.theme.current.textMuted}
           link={api.theme.current.markdownLink}

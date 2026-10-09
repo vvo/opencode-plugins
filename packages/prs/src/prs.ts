@@ -28,15 +28,21 @@ export const EMPTY_CHECKS: CheckSummary = { failing: [], running: [], passing: 0
 
 type StateCount = { state: string; count: number }
 
-/** Only legacy status contexts come from the rollup. Check runs come from their suites. */
+/** Counts only: passing and skipped totals. Failing and running runs come from their suites. */
 export type StatusCheckRollup = {
-  contexts: { statusContextCountsByState: StateCount[] }
+  contexts: { checkRunCountsByState: StateCount[]; statusContextCountsByState: StateCount[] }
 }
 
 export type CheckSuiteNode = {
+  id: string
+  status: string
+  conclusion: string | null
   workflowRun: { runNumber: number; workflow: { id: string } } | null
-  all: { totalCount: number }
-  passing: { totalCount: number }
+}
+
+/** Failing and running runs of one suite, fetched only for suites that are not green. */
+export type CheckSuiteRuns = {
+  id: string
   failing: { totalCount: number; nodes: { name: string }[] }
   running: { totalCount: number; nodes: { name: string }[] }
 }
@@ -66,23 +72,49 @@ export function currentSuites(suites: CheckSuiteNode[]): CheckSuiteNode[] {
 const FAILED_STATES = ["FAILURE", "ERROR"]
 const PASSED_STATES = ["SUCCESS"]
 const RUNNING_STATES = ["PENDING", "EXPECTED"]
+const FAILED_CONCLUSIONS = ["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]
+const RUNNING_STATUSES = ["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"]
+const SKIPPED_CONCLUSIONS = ["SKIPPED", "NEUTRAL"]
 
-export function summarizeChecks(rollup: StatusCheckRollup | null | undefined, allSuites: CheckSuiteNode[]): CheckSummary {
+/** Current suites still running or failed. Green suites never need their runs listed. */
+export function suitesNeedingRuns(suites: CheckSuiteNode[]): CheckSuiteNode[] {
+  return currentSuites(suites).filter((suite) => suite.status !== "COMPLETED" || FAILED_CONCLUSIONS.includes(suite.conclusion ?? ""))
+}
+
+export function summarizeChecks(
+  rollup: StatusCheckRollup | null | undefined,
+  allSuites: CheckSuiteNode[],
+  runs: ReadonlyMap<string, CheckSuiteRuns>,
+): CheckSummary {
   if (!rollup) return EMPTY_CHECKS
-  const suites = currentSuites(allSuites)
+  const count = (entries: StateCount[], states: string[]) => entries.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
   const statuses = rollup.contexts.statusContextCountsByState
-  const statusCount = (states: string[]) => statuses.filter((entry) => states.includes(entry.state)).reduce((total, entry) => total + entry.count, 0)
-  const suiteCount = (pick: (suite: CheckSuiteNode) => number) => suites.reduce((total, suite) => total + pick(suite), 0)
-  const failed = statusCount(FAILED_STATES) + suiteCount((suite) => suite.failing.totalCount)
-  const running = statusCount(RUNNING_STATES) + suiteCount((suite) => suite.running.totalCount)
-  const passing = statusCount(PASSED_STATES) + suiteCount((suite) => suite.passing.totalCount)
-  const total = statuses.reduce((sum, entry) => sum + entry.count, 0) + suiteCount((suite) => suite.all.totalCount)
+  const checkRuns = rollup.contexts.checkRunCountsByState
+  const failingNames: string[] = []
+  const runningNames: string[] = []
+  let failed = count(statuses, FAILED_STATES)
+  let running = count(statuses, RUNNING_STATES)
+  for (const suite of suitesNeedingRuns(allSuites)) {
+    const suiteRuns = runs.get(suite.id)
+    if (suiteRuns) {
+      failed += suiteRuns.failing.totalCount
+      running += suiteRuns.running.totalCount
+      failingNames.push(...suiteRuns.failing.nodes.map((run) => run.name))
+      runningNames.push(...suiteRuns.running.nodes.map((run) => run.name))
+    } else if (suite.status === "COMPLETED") {
+      failed++
+    } else {
+      running++
+    }
+  }
+  const passing = count(statuses, PASSED_STATES) + count(checkRuns, PASSED_STATES)
+  const skipped = count(checkRuns, SKIPPED_CONCLUSIONS)
   return {
-    failing: withUnnamed(suites.flatMap((suite) => suite.failing.nodes.map((run) => run.name)), failed),
-    running: withUnnamed(suites.flatMap((suite) => suite.running.nodes.map((run) => run.name)), running),
+    failing: withUnnamed(failingNames, failed),
+    running: withUnnamed(runningNames, running),
     passing,
-    skipped: total - failed - running - passing,
-    total,
+    skipped,
+    total: failed + running + passing + skipped,
   }
 }
 
@@ -102,18 +134,21 @@ export type RestPullRequest = {
   deletions: number
 }
 
+// GitHub prices a query by the connections it could return. Check runs nested in 100 suites cost
+// 100 requests each, so runs are only listed for the few suites suitesNeedingRuns picks.
 const PULL_REQUEST_FIELDS = [
   "title state url number isDraft reviewDecision mergeStateStatus createdAt mergedAt additions deletions",
   "reviewThreads(first: 100) { nodes { isResolved } }",
   "commits(last: 1) { nodes { commit {",
-  "statusCheckRollup { contexts(first: 1) { statusContextCountsByState { state count } } }",
-  "checkSuites(first: 100) { nodes {",
-  "workflowRun { runNumber workflow { id } }",
-  "all: checkRuns(first: 0, filterBy: { checkType: LATEST }) { totalCount }",
-  "passing: checkRuns(first: 0, filterBy: { checkType: LATEST, conclusions: [SUCCESS] }) { totalCount }",
-  "failing: checkRuns(first: 20, filterBy: { checkType: LATEST, conclusions: [FAILURE, TIMED_OUT, CANCELLED, ACTION_REQUIRED, STARTUP_FAILURE] }) { totalCount nodes { name } }",
-  "running: checkRuns(first: 20, filterBy: { checkType: LATEST, statuses: [QUEUED, IN_PROGRESS, WAITING, PENDING, REQUESTED] }) { totalCount nodes { name } }",
-  "} } } } }",
+  "statusCheckRollup { contexts(first: 1) { checkRunCountsByState { state count } statusContextCountsByState { state count } } }",
+  "checkSuites(first: 100) { nodes { id status conclusion workflowRun { runNumber workflow { id } } } }",
+  "} } }",
+].join(" ")
+
+const CHECK_SUITE_RUNS_FIELDS = [
+  "id",
+  `failing: checkRuns(first: 20, filterBy: { checkType: LATEST, conclusions: [${FAILED_CONCLUSIONS.join(", ")}] }) { totalCount nodes { name } }`,
+  `running: checkRuns(first: 20, filterBy: { checkType: LATEST, statuses: [${RUNNING_STATUSES.join(", ")}] }) { totalCount nodes { name } }`,
 ].join(" ")
 
 // One aliased selection per PR so a session fetches all of them in a single request.
@@ -124,10 +159,22 @@ export function pullRequestsQuery(refs: PullRequestRef[]): string {
   return `query { ${selections.join(" ")} } fragment fields on PullRequest { ${PULL_REQUEST_FIELDS} }`
 }
 
-export function pullRequestFromNode(ref: PullRequestRef, node: PullRequestNode): PullRequest {
+export function checkSuiteRunsQuery(ids: string[]): string {
+  return `query { nodes(ids: ${JSON.stringify(ids)}) { ... on CheckSuite { ${CHECK_SUITE_RUNS_FIELDS} } } }`
+}
+
+/** Suites whose runs the second query must list, across every PR node. */
+export function checkSuiteIdsNeedingRuns(nodes: (PullRequestNode | null | undefined)[]): string[] {
+  return nodes.flatMap((node) => (
+    node?.state === "OPEN" ? suitesNeedingRuns(node.commits.nodes[0]?.commit.checkSuites.nodes ?? []).map((suite) => suite.id) : []
+  ))
+}
+
+export function pullRequestFromNode(ref: PullRequestRef, node: PullRequestNode, runs: ReadonlyMap<string, CheckSuiteRuns> = new Map()): PullRequest {
   const { reviewThreads, commits, ...fields } = node
   const commit = commits.nodes[0]?.commit
-  const checkSummary = summarizeChecks(commit?.statusCheckRollup, commit?.checkSuites.nodes ?? [])
+  // Checks only show on open PRs, and checkSuiteIdsNeedingRuns skips the others.
+  const checkSummary = node.state === "OPEN" ? summarizeChecks(commit?.statusCheckRollup, commit?.checkSuites.nodes ?? [], runs) : EMPTY_CHECKS
   return {
     ...ref,
     ...fields,
@@ -159,6 +206,23 @@ export function pullRequestFromRest(ref: PullRequestRef, data: RestPullRequest, 
     checks: cached?.checks ?? "none",
     checkSummary: cached?.checkSummary ?? EMPTY_CHECKS,
   }
+}
+
+export const ACTIVE_REFRESH_MS = 30_000
+export const IDLE_REFRESH_MS = 120_000
+const NEW_PULL_REQUEST_MS = 5 * 60_000
+
+/** Fast while something is about to change: checks running, mergeability being computed, or a PR whose checks may not have started yet. */
+export function refreshInterval(prs: Pick<PullRequest, "state" | "checks" | "mergeStateStatus" | "createdAt">[], now = Date.now()): number {
+  const active = prs.some((pr) => pr.state === "OPEN" && (
+    pr.checks === "pending" || pr.mergeStateStatus === "UNKNOWN" || now - Date.parse(pr.createdAt) < NEW_PULL_REQUEST_MS
+  ))
+  return active ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS
+}
+
+/** Merged and closed PRs never change again, so they are fetched once. */
+export function isSettled(pr: Pick<PullRequest, "state">): boolean {
+  return pr.state !== "OPEN"
 }
 
 export type ChecksIndicator = "✓" | "×" | "◌"
