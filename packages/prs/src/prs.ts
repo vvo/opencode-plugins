@@ -1,4 +1,5 @@
-export type PullRequestRef = { owner: string; repo: string; number: number; url: string }
+/** `host` is github.com, a GitHub Enterprise Server hostname, or a GHE.com subdomain. */
+export type PullRequestRef = { host: string; owner: string; repo: string; number: number; url: string }
 export type PullRequest = PullRequestRef & {
   title: string
   state: "OPEN" | "CLOSED" | "MERGED"
@@ -272,22 +273,36 @@ export function slackPullRequestsTexty(prs: PullRequest[]): string | undefined {
   return JSON.stringify({ ops })
 }
 
-const GITHUB_PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g
+// Any host: only output of gh calls that create a PR is scanned, so every match comes from a GitHub instance.
+const GITHUB_PR_URL = /https:\/\/([\w-]+(?:\.[\w-]+)+)\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g
 
 export function extractPullRequests(text: string): PullRequestRef[] {
   const refs = new Map<string, PullRequestRef>()
   for (const match of text.matchAll(GITHUB_PR_URL)) {
-    const [, owner, repo, value] = match
+    const [, matchedHost, owner, repo, value] = match
+    const host = matchedHost.toLowerCase()
     const number = Number(value)
-    const url = `https://github.com/${owner}/${repo}/pull/${number}`
-    refs.set(url, { owner, repo, number, url })
+    const url = `https://${host}/${owner}/${repo}/pull/${number}`
+    refs.set(url, { host, owner, repo, number, url })
   }
   return [...refs.values()]
 }
 
+/** Refs per host, because one `gh api` call talks to one GitHub instance. */
+export function groupPullRequestsByHost<T extends PullRequestRef>(refs: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const ref of refs) {
+    const group = groups.get(ref.host)
+    if (group) group.push(ref)
+    else groups.set(ref.host, [ref])
+  }
+  return groups
+}
+
 const GH_PR_CREATE = /(?:^|[;&|\s])gh\s+pr\s+create(?:\s|$)/
 const GH_API = /(?:^|[;&|\s])gh\s+api\s/
-const GH_API_PULLS = /\s["']?(?:https:\/\/api\.github\.com)?\/?repos\/[^\s\/"']+\/[^\s\/"']+\/pulls["']?(?=\s|$)/
+// Full URLs: api.github.com, https://<ghes-host>/api/v3/, or https://api.<subdomain>.ghe.com/.
+const GH_API_PULLS = /\s["']?(?:https:\/\/[\w.-]+(?:\/api\/v3)?)?\/?repos\/[^\s\/"']+\/[^\s\/"']+\/pulls["']?(?=\s|$)/
 const GH_API_METHOD = /\s(?:-X|--method)(?:=|\s+)?["']?(\w+)/
 const GH_API_BODY = /\s(?:-[fF]|--field|--raw-field|--input)(?:=|\s|$)/
 

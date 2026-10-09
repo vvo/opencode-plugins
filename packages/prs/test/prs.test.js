@@ -1,10 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { extractCreatedPullRequests, extractPullRequests, fitPullRequestLabel, groupPullRequests, groupPullRequestsByHost, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
-    owner: "vvo", repo: "opencode-plugins", number: 12,
+    host: "github.com", owner: "vvo", repo: "opencode-plugins", number: 12,
     url: "https://github.com/vvo/opencode-plugins/pull/12",
   }])
 })
@@ -12,6 +12,24 @@ test("extracts and normalizes GitHub pull request links", () => {
 test("removes duplicate pull requests", () => {
   const refs = extractPullRequests("https://github.com/vvo/repo/pull/1 https://github.com/vvo/repo/pull/1")
   assert.equal(uniquePullRequests(refs).length, 1)
+})
+
+test("extracts GitHub Enterprise pull request links", () => {
+  assert.deepEqual(extractPullRequests("Created https://GitHub.acme.corp/platform/api/pull/7751\n"), [{
+    host: "github.acme.corp", owner: "platform", repo: "api", number: 7751,
+    url: "https://github.acme.corp/platform/api/pull/7751",
+  }])
+  assert.equal(extractPullRequests("https://acme.ghe.com/team/app/pull/3")[0].host, "acme.ghe.com")
+  const refs = extractPullRequests("https://github.com/vvo/repo/pull/1 https://github.acme.corp/vvo/repo/pull/1")
+  assert.equal(uniquePullRequests(refs).length, 2)
+})
+
+test("groups pull requests by host", () => {
+  const refs = extractPullRequests("https://github.com/a/b/pull/1 https://github.acme.corp/c/d/pull/2 https://github.com/e/f/pull/3")
+  const groups = groupPullRequestsByHost(refs)
+  assert.deepEqual([...groups.keys()], ["github.com", "github.acme.corp"])
+  assert.deepEqual(groups.get("github.com").map(({ number }) => number), [1, 3])
+  assert.deepEqual(groups.get("github.acme.corp").map(({ number }) => number), [2])
 })
 
 test("flags messages inherited from a forked parent", () => {
@@ -22,7 +40,7 @@ test("flags messages inherited from a forked parent", () => {
   assert.equal(predatesSession({}, 1000), false)
 })
 
-const ref = { owner: "vvo", repo: "opencode-plugins", number: 42, url: "https://github.com/vvo/opencode-plugins/pull/42" }
+const ref = { host: "github.com", owner: "vvo", repo: "opencode-plugins", number: 42, url: "https://github.com/vvo/opencode-plugins/pull/42" }
 const rollup = (statuses = {}) => ({
   contexts: { statusContextCountsByState: Object.entries(statuses).map(([state, count]) => ({ state, count })) },
 })
@@ -180,13 +198,13 @@ test("labels a conflicting PR as conflicts and leaves the checks indicator alone
 
 test("labels pull requests with their repository", () => {
   assert.equal(pullRequestLabel({
-    owner: "vercel", repo: "front", number: 90443,
+    host: "github.com", owner: "vercel", repo: "front", number: 90443,
     url: "https://github.com/vercel/front/pull/90443",
   }), "front#90443")
 })
 
 test("shortens the repository before the PR number", () => {
-  const pr = { owner: "vvo", repo: "opencode-plugins", number: 37, url: "https://github.com/vvo/opencode-plugins/pull/37" }
+  const pr = { host: "github.com", owner: "vvo", repo: "opencode-plugins", number: 37, url: "https://github.com/vvo/opencode-plugins/pull/37" }
   assert.equal(fitPullRequestLabel(pr, 40), "opencode-plugins#37")
   assert.equal(fitPullRequestLabel(pr, 10), "openco…#37")
   assert.equal(fitPullRequestLabel(pr, 4), "#37")
@@ -213,6 +231,15 @@ test("extracts pull requests created through the REST API", () => {
   assert.equal(created("gh api repos/vercel/api/issues -X POST -f title=t"), 0)
 })
 
+test("extracts pull requests created through a GitHub Enterprise REST API", () => {
+  const url = "https://github.acme.corp/platform/api/pull/12"
+  const created = (command) => extractCreatedPullRequests(command, `${url}\n`).length
+  assert.equal(created("gh api https://github.acme.corp/api/v3/repos/platform/api/pulls -X POST -f title=t"), 1)
+  assert.equal(created("gh api https://api.acme.ghe.com/repos/platform/api/pulls -f title=t"), 1)
+  assert.equal(created("gh api --hostname github.acme.corp repos/platform/api/pulls -f title=t"), 1)
+  assert.equal(created("gh api https://github.acme.corp/api/v3/repos/platform/api/pulls"), 0)
+})
+
 test("scrolls long titles", () => {
   assert.equal(marquee("abcdef", 4, 0), "abcd")
   assert.equal(marquee("abcdef", 4, 2), "cdef")
@@ -221,7 +248,7 @@ test("scrolls long titles", () => {
 
 test("sorts open, draft, and merged PRs by recency", () => {
   const pr = (number, state, isDraft, createdAt, mergedAt = null) => ({
-    owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
+    host: "github.com", owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
     title: String(number), state, isDraft, reviewDecision: null, unresolvedThreads: 0, checks: "none", createdAt, mergedAt, additions: 4, deletions: 2,
   })
   const sorted = sortPullRequests([
@@ -236,7 +263,7 @@ test("sorts open, draft, and merged PRs by recency", () => {
 
 test("groups merged PRs behind the active ones", () => {
   const pr = (number, state, isDraft, createdAt, mergedAt = null) => ({
-    owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
+    host: "github.com", owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}`,
     title: String(number), state, isDraft, reviewDecision: null, unresolvedThreads: 0, checks: "none", createdAt, mergedAt, additions: 4, deletions: 2,
   })
   const groups = groupPullRequests([
@@ -252,7 +279,7 @@ test("groups merged PRs behind the active ones", () => {
 
 test("formats a PR for Slack", () => {
   const pr = {
-    owner: "vvo", repo: "opencode-plugins", number: 22,
+    host: "github.com", owner: "vvo", repo: "opencode-plugins", number: 22,
     url: "https://github.com/vvo/opencode-plugins/pull/22",
     title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED", unresolvedThreads: 0, checks: "passing",
     createdAt: "2026-09-04T10:00:00Z", mergedAt: "2026-09-04T11:00:00Z", additions: 4, deletions: 4,

@@ -27,9 +27,11 @@ OpenCode 1, in `~/.config/opencode/tui.json`:
 
 Then restart OpenCode. The plugin requires an installed and authenticated [GitHub CLI](https://cli.github.com/).
 
+GitHub Enterprise Server and GHE.com work too. Sign in to each instance with `gh auth login --hostname <host>`. The plugin asks each host for its own pull requests, so a session can mix github.com and Enterprise PRs. A host you are not signed in to only hides its own PRs.
+
 ## How it works
 
-The plugin finds successful `gh pr create` calls made by the session, plus REST fallbacks that POST to `gh api repos/<owner>/<repo>/pulls`. It fetches every pull request of a session in one GraphQL request through `gh`, and falls back to the REST API per pull request when GraphQL fails, for example when its rate limit is exhausted. Closed pull requests are hidden, while merged pull requests remain visible behind the fold. The sidebar shows up to ten pull requests, ordered by open, draft, then merged, with the newest first in each group; merged ones only take the rows the active ones leave free.
+The plugin finds successful `gh pr create` calls made by the session, plus REST fallbacks that POST to `gh api repos/<owner>/<repo>/pulls`. It fetches every pull request of a session in one GraphQL request per GitHub host through `gh api --hostname`, and falls back to the REST API per pull request when GraphQL fails, for example when its rate limit is exhausted. Closed pull requests are hidden, while merged pull requests remain visible behind the fold. The sidebar shows up to ten pull requests, ordered by open, draft, then merged, with the newest first in each group; merged ones only take the rows the active ones leave free.
 
 A forked session only lists pull requests created after the fork. Messages copied from the parent keep their original timestamps, so anything older than the fork itself is skipped.
 
