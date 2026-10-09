@@ -33,9 +33,9 @@ The plugin finds successful `gh pr create` calls made by the session, plus REST 
 
 A forked session only lists pull requests created after the fork. Messages copied from the parent keep their original timestamps, so anything older than the fork itself is skipped.
 
-Results are cached by session. Switching tabs shows the previous result immediately and revalidates GitHub data in the background. The active tab refreshes statuses every thirty seconds without replacing unchanged rows. The panel reads the same cache, so opening it costs no extra request.
+Results are cached by session. Switching tabs shows the previous result immediately and revalidates GitHub data in the background. The active tab refreshes every thirty seconds while checks are running, a PR is less than five minutes old, or GitHub is still computing whether it can merge, and every two minutes otherwise. Unchanged rows are not replaced. A terminal window in the background stops refreshing and catches up as soon as it gets focus again. Merged and closed pull requests are fetched once; `r` in the panel fetches everything again. The panel reads the same cache, so opening it costs no extra request.
 
-Checks come from GitHub's own rollup rather than from listing every check: the rollup state gives the sidebar indicator, its per-state counts give the passing and skipped totals, and a filtered `checkRuns` query on each check suite gives the names of the failing and running ones. GitHub's merge state also tells us when an approved PR is blocked from merging. A PR with hundreds of checks would take multiple pages to list them all.
+Checks are read in two steps to keep GitHub's rate limit cost low. The first query gets each PR with its check suites' status and the rollup's per-state counts, which give the passing and skipped totals. A second query lists failing and running check runs by name, only for suites that are still running or failed. GitHub prices a query by the most rows its connections could return, so listing runs inside every suite of every PR cost 14 points per refresh for seven PRs. The same seven now cost 1 point, plus 1 while checks run or fail. GitHub's merge state also tells us when an approved PR is blocked from merging.
 
 One published package supports OpenCode 1 and OpenCode 2.
 

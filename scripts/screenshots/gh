@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fake gh for screenshots: canned answers for the batched pull request GraphQL query and its REST fallback."""
+"""Fake gh for screenshots: canned answers for the batched pull request GraphQL query, its check runs query and its REST fallback."""
 import json, re, sys
 
 PRS = {
@@ -29,14 +29,25 @@ PRS = {
     },
 }
 
-def suite(kind):
-    """One check suite holding a single check named `test` in the given state."""
+def suite_id(number):
+    return f"CS_{number}"
+
+def suite(number):
+    """One check suite holding a single check named `test` in the PR's state."""
+    kind = PRS[number]["checks"]
+    return {
+        "id": suite_id(number),
+        "status": "IN_PROGRESS" if kind == "IN_PROGRESS" else "COMPLETED",
+        "conclusion": None if kind == "IN_PROGRESS" else kind,
+        "workflowRun": None,
+    }
+
+def suite_runs(number):
+    kind = PRS[number]["checks"]
     failing = ["test"] if kind == "FAILURE" else []
     running = ["test"] if kind == "IN_PROGRESS" else []
     return {
-        "workflowRun": None,
-        "all": {"totalCount": 1},
-        "passing": {"totalCount": 1 if kind == "SUCCESS" else 0},
+        "id": suite_id(number),
         "failing": {"totalCount": len(failing), "nodes": [{"name": n} for n in failing]},
         "running": {"totalCount": len(running), "nodes": [{"name": n} for n in running]},
     }
@@ -51,14 +62,21 @@ def node(owner, repo, number):
         "additions": pr["additions"], "deletions": pr["deletions"],
         "reviewThreads": {"nodes": [{"isResolved": False}] * pr["unresolved"]},
         "commits": {"nodes": [{"commit": {
-            "statusCheckRollup": {"contexts": {"statusContextCountsByState": []}},
-            "checkSuites": {"nodes": [suite(pr["checks"])]},
+            "statusCheckRollup": {"contexts": {
+                "checkRunCountsByState": [{"state": "SUCCESS", "count": 1}] if pr["checks"] == "SUCCESS" else [],
+                "statusContextCountsByState": [],
+            }},
+            "checkSuites": {"nodes": [suite(number)]},
         }}]},
     }
 
 args = sys.argv[1:]
 if args[:2] == ["api", "graphql"]:
     query = next(a for a in args if a.startswith("query=")).removeprefix("query=")
+    ids = re.search(r"nodes\(ids: (\[[^\]]*\])\)", query)
+    if ids:
+        print(json.dumps({"data": {"nodes": [suite_runs(int(i.removeprefix("CS_"))) for i in json.loads(ids.group(1))]}}))
+        sys.exit(0)
     aliases = re.findall(r'(pr\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\) \{ pullRequest\(number: (\d+)\)', query)
     data = {alias: {"pullRequest": node(owner, repo, int(number))} for alias, owner, repo, number in aliases}
     print(json.dumps({"data": data}))
