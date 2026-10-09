@@ -380,13 +380,17 @@ async function sessionCreatedV2(context: Context, sessionID: string): Promise<nu
   return context.client.session.get({ sessionID }).then((session) => session.time.created).catch(() => undefined)
 }
 
+function childSession(session: { id: string; time: { created: number; updated: number } }): ChildSession {
+  return { id: session.id, created: session.time.created, updated: session.time.updated }
+}
+
 async function childSessionsV2(context: Context, parentID: string): Promise<ChildSession[]> {
   const children: ChildSession[] = []
   let cursor: string | undefined
   let page = 0
   do {
     const response = await context.client.session.list({ parentID, limit: 200, ...(cursor ? { cursor } : { order: "desc" }) })
-    children.push(...response.data.map((session) => ({ id: session.id, created: session.time.created, updated: session.time.updated })))
+    children.push(...response.data.map(childSession))
     if (response.data.length < 200) break
     cursor = response.cursor.next ?? undefined
     page++
@@ -403,10 +407,7 @@ function descendantsV2(context: Context, sessionID: string) {
 
 function descendantsV1(api: TuiPluginApi, sessionID: string) {
   return (known: Map<string, DescendantRefs>) => descendantPullRequests(sessionID, known, {
-    children: async (parentID) => {
-      const response = await api.client.session.children({ sessionID: parentID })
-      return (response.data ?? []).map((session) => ({ id: session.id, created: session.time.created, updated: session.time.updated }))
-    },
+    children: async (parentID) => (await api.client.session.children({ sessionID: parentID })).data?.map(childSession) ?? [],
     refs: (child) => refsFromV1History(api, child.id),
   })
 }

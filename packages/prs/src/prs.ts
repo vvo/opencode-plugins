@@ -376,17 +376,14 @@ export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestR
   return [...new Map([...refs].map((ref) => [ref.url, ref])).values()]
 }
 
-export type ChildSession = { id: string; created?: number; updated?: number }
-export type DescendantRefs = { updated?: number; refs: PullRequestRef[]; children: string[] }
+export type ChildSession = { id: string; created: number; updated: number }
+export type DescendantRefs = { updated: number; refs: PullRequestRef[]; hasChildren: boolean }
 export type DescendantLoader = {
   children(sessionID: string): Promise<ChildSession[]>
   refs(session: ChildSession): Promise<PullRequestRef[]>
 }
 
-/**
- * PRs created by subagent sessions, at any depth. Only the root's children are listed on every call:
- * a child whose `updated` time has not moved reuses its cached refs and children.
- */
+/** PRs created by subagent sessions, at any depth. A session whose `updated` time has not moved keeps its cached refs. */
 export async function descendantPullRequests(
   sessionID: string,
   known: Map<string, DescendantRefs>,
@@ -394,20 +391,19 @@ export async function descendantPullRequests(
 ): Promise<PullRequestRef[]> {
   const refs: PullRequestRef[] = []
   const seen = new Set([sessionID])
-  const visit = async (child: ChildSession): Promise<void> => {
+  async function visit(child: ChildSession): Promise<void> {
     if (seen.has(child.id)) return
     seen.add(child.id)
-    let entry = known.get(child.id)
-    if (!entry || entry.updated === undefined || entry.updated !== child.updated) {
-      const [childRefs, children] = await Promise.all([load.refs(child), load.children(child.id)])
-      entry = { updated: child.updated, refs: childRefs, children: children.map((grandchild) => grandchild.id) }
-      known.set(child.id, entry)
-      refs.push(...entry.refs)
-      await Promise.all(children.map(visit))
-      return
-    }
-    refs.push(...entry.refs)
-    await Promise.all(entry.children.map((id) => visit({ id, updated: known.get(id)?.updated })))
+    const cached = known.get(child.id)
+    const changed = cached?.updated !== child.updated
+    // An idle session cannot start new subagents, but the ones it started may still be running.
+    const [childRefs, children] = await Promise.all([
+      changed || !cached ? load.refs(child) : cached.refs,
+      changed || cached?.hasChildren ? load.children(child.id) : [],
+    ])
+    known.set(child.id, { updated: child.updated, refs: childRefs, hasChildren: children.length > 0 })
+    refs.push(...childRefs)
+    await Promise.all(children.map(visit))
   }
   await Promise.all((await load.children(sessionID)).map(visit))
   return refs
