@@ -376,6 +376,43 @@ export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestR
   return [...new Map([...refs].map((ref) => [ref.url, ref])).values()]
 }
 
+export type ChildSession = { id: string; created?: number; updated?: number }
+export type DescendantRefs = { updated?: number; refs: PullRequestRef[]; children: string[] }
+export type DescendantLoader = {
+  children(sessionID: string): Promise<ChildSession[]>
+  refs(session: ChildSession): Promise<PullRequestRef[]>
+}
+
+/**
+ * PRs created by subagent sessions, at any depth. Only the root's children are listed on every call:
+ * a child whose `updated` time has not moved reuses its cached refs and children.
+ */
+export async function descendantPullRequests(
+  sessionID: string,
+  known: Map<string, DescendantRefs>,
+  load: DescendantLoader,
+): Promise<PullRequestRef[]> {
+  const refs: PullRequestRef[] = []
+  const seen = new Set([sessionID])
+  const visit = async (child: ChildSession): Promise<void> => {
+    if (seen.has(child.id)) return
+    seen.add(child.id)
+    let entry = known.get(child.id)
+    if (!entry || entry.updated === undefined || entry.updated !== child.updated) {
+      const [childRefs, children] = await Promise.all([load.refs(child), load.children(child.id)])
+      entry = { updated: child.updated, refs: childRefs, children: children.map((grandchild) => grandchild.id) }
+      known.set(child.id, entry)
+      refs.push(...entry.refs)
+      await Promise.all(children.map(visit))
+      return
+    }
+    refs.push(...entry.refs)
+    await Promise.all(entry.children.map((id) => visit({ id, updated: known.get(id)?.updated })))
+  }
+  await Promise.all((await load.children(sessionID)).map(visit))
+  return refs
+}
+
 // Forks copy parent messages with their original timestamps, so anything older than the session came from the parent.
 export function predatesSession(message: { time?: { created?: number } }, sessionCreated: number | undefined): boolean {
   const created = message.time?.created
