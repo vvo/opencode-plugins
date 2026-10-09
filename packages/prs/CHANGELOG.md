@@ -1,5 +1,12 @@
 # opencode-prs
 
+## 0.5.4
+
+### Patch Changes
+
+- 08dfe6b: Use far less of the GitHub API rate limit. Check runs are only listed for suites that are running or failed, merged and closed PRs are fetched once, PRs refresh every two minutes unless checks are running, and a terminal window in the background stops refreshing until you come back to it.
+- 10dc604: List pull requests opened by subagents. The sidebar and the panel now include PRs created in child sessions, at any depth, and pick up a new one within thirty seconds.
+
 ## 0.5.3
 
 ### Patch Changes
