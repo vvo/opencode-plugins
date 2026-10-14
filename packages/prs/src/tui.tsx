@@ -10,7 +10,9 @@ import {
   ACTIVE_REFRESH_MS,
   checkSuiteIdsNeedingRuns,
   checkSuiteRunsQuery,
+  addSessionMessage,
   descendantPullRequests,
+  emptySessionRefs,
   extractCreatedPullRequests,
   isSettled,
   refreshInterval,
@@ -29,6 +31,7 @@ import {
   slackPullRequestHtml,
   slackPullRequests,
   slackPullRequestsHtml,
+  sessionPullRequests,
   slackPullRequestsTexty,
   sortPullRequests,
   uniquePullRequests,
@@ -41,6 +44,7 @@ import {
   type PullRequestNode,
   type PullRequestRef,
   type RestPullRequest,
+  type SessionRefs,
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
@@ -330,48 +334,57 @@ async function fetchPullRequestRest(ref: PullRequestRef, cached: PullRequest | u
 }
 
 function refsFromV2(messages: readonly Message[], sessionCreated: number | undefined): PullRequestRef[] {
-  const refs: PullRequestRef[] = []
+  const refs = emptySessionRefs()
+  addV2Messages(refs, messages, sessionCreated)
+  return sessionPullRequests(refs)
+}
+
+function addV2Messages(refs: SessionRefs, messages: readonly Message[], sessionCreated: number | undefined): void {
   for (const message of messages) {
-    if (message.type !== "assistant" || predatesSession(message, sessionCreated)) continue
-    for (const content of message.content ?? []) {
+    const created: PullRequestRef[] = []
+    for (const content of message.type === "assistant" ? message.content ?? [] : []) {
       if (!content || typeof content !== "object") continue
       const part = content as ShellToolPart
       if (part.type !== "tool" || part.name !== "shell" || part.state?.status !== "completed") continue
-      refs.push(...extractCreatedPullRequests(part.state.input?.command ?? "", JSON.stringify(part.state.content)))
+      created.push(...extractCreatedPullRequests(part.state.input?.command ?? "", JSON.stringify(part.state.content)))
     }
+    addSessionMessage(refs, predatesSession(message, sessionCreated), JSON.stringify(message), created)
   }
-  return refs
 }
 
 function refsFromV1(api: TuiPluginApi, sessionID: string): PullRequestRef[] {
-  const refs: PullRequestRef[] = []
+  const refs = emptySessionRefs()
   const sessionCreated = api.state.session.get(sessionID)?.time.created
   for (const message of api.state.session.messages(sessionID)) {
-    if (predatesSession(message, sessionCreated)) continue
-    for (const part of api.state.part(message.id)) {
-      if (part.type !== "tool" || part.tool !== "shell" || part.state.status !== "completed") continue
-      const input = part.state.input as { command?: string }
-      refs.push(...extractCreatedPullRequests(input.command ?? "", part.state.output))
-    }
+    addV1Message(refs, predatesSession(message, sessionCreated), api.state.part(message.id))
   }
-  return refs
+  return sessionPullRequests(refs)
+}
+
+function addV1Message(refs: SessionRefs, inherited: boolean, parts: readonly unknown[]): void {
+  const created: PullRequestRef[] = []
+  for (const part of parts as readonly ShellToolPart[]) {
+    if (part.type !== "tool" || part.tool !== "shell" || part.state?.status !== "completed") continue
+    created.push(...extractCreatedPullRequests(part.state.input?.command ?? "", part.state.output ?? ""))
+  }
+  addSessionMessage(refs, inherited, JSON.stringify(parts), created)
 }
 
 async function refsFromV2History(context: Context, sessionID: string, created?: number): Promise<PullRequestRef[]> {
   const sessionCreated = created ?? await sessionCreatedV2(context, sessionID)
-  const refs: PullRequestRef[] = []
+  const refs = emptySessionRefs()
   let cursor: string | undefined
   let page = 0
   do {
     const response = await context.client.message.list({ sessionID, limit: 200, ...(cursor ? { cursor } : { order: "desc" }) })
     const messages = response.data as readonly Message[]
-    refs.push(...refsFromV2(messages, sessionCreated))
-    // Newest first, so once a page reaches inherited messages the rest is the parent's history.
-    if (messages.some((message) => predatesSession(message, sessionCreated))) break
+    addV2Messages(refs, messages, sessionCreated)
+    // Newest first: past the fork, the parent's history only matters for the PRs the fork links to.
+    if (refs.mentioned.size === 0 && messages.some((message) => predatesSession(message, sessionCreated))) break
     cursor = response.cursor.next ?? undefined
     page++
   } while (cursor && page < MAX_HISTORY_PAGES)
-  return refs
+  return sessionPullRequests(refs)
 }
 
 async function sessionCreatedV2(context: Context, sessionID: string): Promise<number | undefined> {
@@ -417,15 +430,11 @@ async function refsFromV1History(api: TuiPluginApi, sessionID: string): Promise<
     api.client.session.messages({ sessionID }),
     api.client.session.get({ sessionID }).then((session) => session.data?.time.created).catch(() => undefined),
   ])
-  const refs: PullRequestRef[] = []
+  const refs = emptySessionRefs()
   for (const item of response.data ?? []) {
-    if (predatesSession(item.info, sessionCreated)) continue
-    for (const part of item.parts as ShellToolPart[]) {
-      if (part.type !== "tool" || part.tool !== "shell" || part.state?.status !== "completed") continue
-      refs.push(...extractCreatedPullRequests(part.state.input?.command ?? "", part.state.output ?? ""))
-    }
+    addV1Message(refs, predatesSession(item.info, sessionCreated), item.parts)
   }
-  return refs
+  return sessionPullRequests(refs)
 }
 
 function PullRequests(props: {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, descendantPullRequests, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, addSessionMessage, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, descendantPullRequests, emptySessionRefs, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, sessionPullRequests, slackPullRequest, slackPullRequestHtml, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -20,6 +20,15 @@ test("flags messages inherited from a forked parent", () => {
   assert.equal(predatesSession({ time: { created: 1001 } }, 1000), false)
   assert.equal(predatesSession({ time: { created: 999 } }, undefined), false)
   assert.equal(predatesSession({}, 1000), false)
+})
+
+test("a fork lists its own PRs and the parent's PRs it links to", () => {
+  const pr = (number) => ({ owner: "vvo", repo: "repo", number, url: `https://github.com/vvo/repo/pull/${number}` })
+  const refs = emptySessionRefs()
+  addSessionMessage(refs, true, "", [pr(1), pr(2)])
+  addSessionMessage(refs, true, "", [pr(3)])
+  addSessionMessage(refs, false, "Pushed to https://github.com/vvo/repo/pull/2 and read https://github.com/vvo/repo/pull/9", [pr(4)])
+  assert.deepEqual(sessionPullRequests(refs).map((ref) => ref.number), [4, 2])
 })
 
 test("finds PRs created by subagents and grandchildren, re-reading only sessions that changed", async () => {

@@ -415,6 +415,28 @@ export function predatesSession(message: { time?: { created?: number } }, sessio
   return sessionCreated !== undefined && created !== undefined && created < sessionCreated
 }
 
+/** PRs a session created, split by whether a forked parent created them, plus every PR URL the session's own messages link to. */
+export type SessionRefs = { own: PullRequestRef[]; inherited: PullRequestRef[]; mentioned: Set<string> }
+
+export function emptySessionRefs(): SessionRefs {
+  return { own: [], inherited: [], mentioned: new Set() }
+}
+
+/** Adds one message: `text` is the whole message, `created` the PRs its shell calls opened. */
+export function addSessionMessage(refs: SessionRefs, inherited: boolean, text: string, created: PullRequestRef[]): void {
+  if (inherited) {
+    refs.inherited.push(...created)
+    return
+  }
+  refs.own.push(...created)
+  for (const ref of extractPullRequests(text)) refs.mentioned.add(ref.url)
+}
+
+// A fork hides the parent's PRs, except the ones it keeps working on: those its own messages link to.
+export function sessionPullRequests(refs: SessionRefs): PullRequestRef[] {
+  return uniquePullRequests([...refs.own, ...refs.inherited.filter((ref) => refs.mentioned.has(ref.url))])
+}
+
 export function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`
 }
