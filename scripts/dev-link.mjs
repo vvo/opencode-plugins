@@ -9,6 +9,7 @@ const statePath = resolve(configDir, "opencode-plugins-dev.json")
 const packages = [
   { name: "opencode-cost-details", directory: "packages/cost-details/dist" },
   { name: "opencode-prs", directory: "packages/prs/dist" },
+  { name: "opencode-search-sessions", directory: "packages/search-sessions/dist" },
 ].map((plugin) => ({ ...plugin, target: resolve(root, plugin.directory) }))
 const serverPackages = [{ name: "opencode-awake", directory: "packages/awake" }].map((plugin) => ({
   ...plugin,

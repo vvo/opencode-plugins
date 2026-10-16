@@ -34,6 +34,21 @@ Shows GitHub pull requests opened by the current session. Every title links to G
 opencode2 plugin add opencode-prs
 ```
 
+### [opencode-search-sessions](packages/search-sessions)
+
+Searches every prompt and reply of every session, typos included. Open it with `ctrl+x f`, `/search` or the field under the home prompt.
+
+<a href="packages/search-sessions">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/search-sessions-dark.png">
+    <img src="assets/search-sessions-light.png" alt="Search results with the matching words highlighted" width="640">
+  </picture>
+</a>
+
+```sh
+opencode2 plugin add opencode-search-sessions
+```
+
 ### [opencode-awake](packages/awake)
 
 Keeps your computer awake while a session works, including with the laptop lid closed on macOS and Linux.
@@ -54,14 +69,14 @@ pnpm test
 
 Packages live under `packages/`. Each package builds its TypeScript and JSX into `dist/` before publishing because OpenCode loads published plugins from `node_modules`.
 
-To use both plugins from this checkout:
+To use the plugins from this checkout:
 
 ```sh
 pnpm dev:link
 pnpm dev
 ```
 
-`dev:link` configures both compiled plugin directories in `cli.json` and removes the published versions. `dev` rebuilds both plugins when their source changes. Restart the OpenCode client after a rebuild to load it.
+`dev:link` configures the compiled plugin directories in `cli.json` and removes the published versions. `dev` rebuilds the plugins when their source changes. Restart the OpenCode client after a rebuild to load it.
 
 Restore the published configuration with:
 
