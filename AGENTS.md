@@ -15,6 +15,7 @@ This repository publishes independent OpenCode plugins from `packages/`.
 - Run `pnpm dev` while editing. It rebuilds `dist/` after source changes.
 - Restart the OpenCode client after each rebuild. OpenCode loads compiled JavaScript from `dist/` and does not hot reload plugins.
 - Run `pnpm dev:unlink` to restore the plugin entries saved by `dev:link`.
+- Before removing a worktree, check `~/.config/opencode/cli.json`. If any plugin path points into that worktree, run `pnpm build && pnpm dev:link` from the main checkout first and drop entries for plugins that only exist on the worktree's branch. A removed worktree leaves dead paths and the plugins silently disappear from the sidebar (Nov 2026, lost PRs and cost).
 - Do not run `pnpm install` in a worktree. Worktrees share the main checkout's `node_modules` unless created with isolated dependencies.
 
 ## Screenshots
