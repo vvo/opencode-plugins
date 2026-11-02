@@ -34,7 +34,7 @@ Shows GitHub pull requests opened by the current session. Every title links to G
 opencode2 plugin add opencode-prs
 ```
 
-### [opencode-search-sessions](packages/search-sessions)
+### [opencode-find-sessions](packages/search-sessions)
 
 Searches every prompt and reply of every session, typos included. Open it with `ctrl+x f`, `/search` or the field under the home prompt.
 
@@ -46,7 +46,7 @@ Searches every prompt and reply of every session, typos included. Open it with `
 </a>
 
 ```sh
-opencode2 plugin add opencode-search-sessions
+opencode2 plugin add opencode-find-sessions
 ```
 
 ### [opencode-awake](packages/awake)

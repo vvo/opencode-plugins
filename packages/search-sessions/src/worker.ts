@@ -7,7 +7,7 @@ export type WorkerRequest =
   | { readonly id: number; readonly type: "sync"; readonly hints?: readonly string[] }
 
 const port = parentPort
-if (!port) throw new Error("opencode-search-sessions: worker started outside a worker thread")
+if (!port) throw new Error("opencode-find-sessions: worker started outside a worker thread")
 const options = workerData as { database: string; index: string; flavor: Flavor }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))

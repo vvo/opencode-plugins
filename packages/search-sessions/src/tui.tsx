@@ -14,7 +14,7 @@ import { fitSegments, relativeTime, truncate, type Segment } from "./query.js"
 type Context = Plugin.Context
 type Color = string | RGBA
 
-const ID = "opencode-search-sessions"
+const ID = "opencode-find-sessions"
 const COMMAND = `${ID}.open`
 const SHORTCUT = "<leader>f"
 const LIMIT = 50

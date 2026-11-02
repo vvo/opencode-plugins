@@ -38,6 +38,18 @@ describe("searching an OpenCode 2 database", () => {
     for (let index = 0; index < 10; index++) source.message("ses_restore", "assistant", `The session comes back after restart ${index}`)
     // A busy session that mentions a word in every reply, against one titled with it.
     for (let index = 0; index < 60; index++) source.message("ses_chores", "assistant", `deploy the cron job ${index}, then deploy again`)
+    source
+      .session("ses_pr_short", { title: "Review queue", updated: NOW - 30 * DAY })
+      .message("ses_pr_short", "assistant", "Opened [api#103726](https://example.test/x) and front#62")
+      .session("ses_pr_url", { title: "Merged work", updated: NOW - 31 * DAY })
+      .message("ses_pr_url", "user", "did https://github.com/acme/api/pull/103726/files land?")
+      .session("ses_pr_bare", { title: "Checks", updated: NOW - 32 * DAY })
+      .message("ses_pr_bare", "assistant", "CI on #103726 is green, and api#62 too")
+      .session("ses_pr_tool", { title: "Open the PR", updated: NOW - 33 * DAY })
+      .message("ses_pr_tool", "assistant", [
+        { type: "text", text: "Opening it now." },
+        { type: "tool", name: "shell", state: { status: "completed", input: { command: "gh pr create --draft" }, content: [{ type: "text", text: "https://github.com/acme/infra/pull/38087\n" }] } },
+      ])
     source.close()
     engine = await Engine.open({ database: source.file, index: join(dir, "index.sqlite"), flavor: "v2" })
     await engine.sync()
@@ -72,6 +84,23 @@ describe("searching an OpenCode 2 database", () => {
     assert.match(marked(output.hits[0].snippet), /\[dev:link\]/)
   })
 
+  test("finds a pull request however it was written", () => {
+    const everywhere = ["ses_pr_bare", "ses_pr_short", "ses_pr_url"]
+    for (const query of ["https://github.com/acme/api/pull/103726", "acme/api#103726", "api#103726"]) {
+      assert.deepEqual(ids(engine.search({ query })).sort(), everywhere, query)
+    }
+    const url = engine.search({ query: "https://github.com/acme/api/pull/103726" })
+    const hit = url.hits.find((item) => item.sessionID === "ses_pr_url")
+    assert.match(marked(hit.snippet), /\[api\/pull\/103726\]/)
+    // Short numbers are common, so they need the repository.
+    assert.deepEqual(ids(engine.search({ query: "api#62" })), ["ses_pr_bare"])
+    assert.deepEqual(ids(engine.search({ query: "https://github.com/acme/front/pull/62" })), ["ses_pr_short"])
+    // A link only a tool call printed, like `gh pr create`.
+    const created = engine.search({ query: "infra#38087" })
+    assert.deepEqual(ids(created), ["ses_pr_tool"])
+    assert.match(marked(created.hits[0].snippet), /\[infra\/pull\/38087\]/)
+  })
+
   test("ranks a title match above repeated mentions", () => {
     const output = engine.search({ query: "deploy" })
     assert.deepEqual(ids(output), ["ses_deploy", "ses_chores"])
@@ -97,7 +126,7 @@ describe("searching an OpenCode 2 database", () => {
 
   test("lists recent sessions with their first prompt when the query is empty", () => {
     const output = engine.search({ query: "" })
-    assert.deepEqual(ids(output), ["ses_fork", "ses_typo", "ses_restore", "ses_count", "ses_deploy", "ses_chores"])
+    assert.deepEqual(ids(output), ["ses_fork", "ses_typo", "ses_restore", "ses_count", "ses_deploy", "ses_chores", "ses_pr_short", "ses_pr_url", "ses_pr_bare", "ses_pr_tool"])
     assert.equal(marked(output.hits[3].snippet), "The sidebar shows the wrong number of pull requests")
     assert.equal(output.hits[3].role, "user")
   })

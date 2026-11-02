@@ -3,6 +3,8 @@
 export type Clause =
   | { readonly kind: "term"; readonly token: string; readonly prefix: boolean }
   | { readonly kind: "phrase"; readonly tokens: readonly string[]; readonly prefix: boolean }
+  /** Any one of several phrases, such as the ways a pull request gets written. */
+  | { readonly kind: "any"; readonly alternatives: readonly (readonly string[])[] }
 
 export type Segment = { readonly text: string; readonly hit: boolean }
 
@@ -43,6 +45,28 @@ export function tokenize(text: string): string[] {
   return normalize(text).match(TOKEN) ?? []
 }
 
+const GITHUB_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/[^/\s]+\/([^/\s#]+)\/(?:pull|pulls|issues)\/(\d+)/i
+const SHORT_REF = /^(?:[\w.-]+\/)?([\w.-]+)#(\d+)$/
+
+/**
+ * A pull request or issue URL, `owner/repo#123` or `repo#123`, as every form sessions write it in:
+ * the full URL, `repo#123`, and the bare number when it is long enough to be unambiguous.
+ */
+export function referenceAlternatives(word: string): string[][] | undefined {
+  const match = GITHUB_URL.exec(word) ?? SHORT_REF.exec(word)
+  if (!match) return undefined
+  const repo = tokenize(match[1])
+  const number = match[2]
+  if (repo.length === 0) return undefined
+  const alternatives = [
+    [...repo, number],
+    [...repo, "pull", number],
+    [...repo, "issues", number],
+  ]
+  if (number.length >= 4) alternatives.push([number])
+  return alternatives
+}
+
 export function parseQuery(input: string): Clause[] {
   const typing = !/\s$/.test(input)
   const words: { text: string; quoted: boolean; open: boolean }[] = []
@@ -54,6 +78,11 @@ export function parseQuery(input: string): Clause[] {
   words.forEach((word, index) => {
     const tokens = tokenize(word.text)
     if (tokens.length === 0) return
+    const alternatives = word.quoted ? undefined : referenceAlternatives(word.text)
+    if (alternatives) {
+      clauses.push({ kind: "any", alternatives, stop: false })
+      return
+    }
     const last = index === words.length - 1
     // Quotes ask for an exact phrase; only an unclosed quote at the end is still being typed.
     const prefix = last && (word.quoted ? word.open : typing)
@@ -145,6 +174,7 @@ function quote(token: string): string {
 
 /** One clause as an FTS5 expression, with typo corrections as alternatives. */
 export function clauseMatch(clause: Clause, variants: readonly string[] = []): string {
+  if (clause.kind === "any") return `(${clause.alternatives.map((tokens) => quote(tokens.join(" "))).join(" OR ")})`
   if (clause.kind === "phrase") return quote(clause.tokens.join(" ")) + (clause.prefix ? "*" : "")
   const exact = quote(clause.token) + (clause.prefix ? "*" : "")
   if (variants.length === 0) return exact
@@ -200,6 +230,18 @@ function matchRanges(text: string, matcher: Matcher): Range[] {
   const ranges: Range[] = []
   for (let index = 0; index < tokens.length && ranges.length < MAX_RANGES; index++) {
     matcher.clauses.forEach((clause, number) => {
+      if (clause.kind === "any") {
+        // Longest first, so a full URL highlights "api/pull/123" rather than only "123".
+        const sorted = clause.alternatives.toSorted((left, right) => right.length - left.length)
+        for (const words of sorted) {
+          if (index + words.length > tokens.length) continue
+          if (words.every((word, offset) => tokens[index + offset].norm === word)) {
+            ranges.push({ start: tokens[index].start, end: tokens[index + words.length - 1].end, clause: number })
+            return
+          }
+        }
+        return
+      }
       const words = clause.kind === "term" ? [clause.token] : clause.tokens
       if (index + words.length > tokens.length) return
       for (let offset = 0; offset < words.length; offset++) {

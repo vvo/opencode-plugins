@@ -1,4 +1,4 @@
 export default {
-  id: "opencode-search-sessions",
+  id: "opencode-find-sessions",
   setup() {},
 }

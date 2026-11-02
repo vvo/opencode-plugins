@@ -8,7 +8,7 @@ export const DAY = 86_400_000
 export const NOW = Date.now()
 
 export function temp() {
-  return mkdtempSync(join(tmpdir(), "opencode-search-sessions-"))
+  return mkdtempSync(join(tmpdir(), "opencode-find-sessions-"))
 }
 
 export function v2Database(dir) {

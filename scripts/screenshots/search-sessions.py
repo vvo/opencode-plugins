@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the opencode-search-sessions README screenshots from a live OpenCode 2 TUI.
+"""Regenerate the opencode-find-sessions README screenshots from a live OpenCode 2 TUI.
 
     pnpm build
     python3 scripts/screenshots/search-sessions.py            # both themes

@@ -20,7 +20,7 @@ import {
 } from "./query.js"
 
 /** Bump to rebuild every index, e.g. after a tokenizer or schema change. */
-export const INDEX_VERSION = 1
+export const INDEX_VERSION = 2
 
 /** Sessions updated this recently get their messages rechecked: a streaming reply does not touch the session row. */
 const HOT_MS = 15 * 60_000
@@ -116,6 +116,27 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
+const GITHUB_REF = /https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/\d+/g
+const MAX_REFS = 50
+
+/**
+ * A message's text plus the pull request and issue links its tool calls saw (`gh pr create`,
+ * `gh pr view`...), so a session that only opened a PR is still found by it. The rest of a
+ * tool call stays out of the index.
+ */
+function withRefs(row: Row | undefined): string {
+  const body = text(row?.text)
+  const tools = text(row?.refs)
+  if (!tools) return body
+  const refs = new Set<string>()
+  for (const [url] of tools.matchAll(GITHUB_REF)) {
+    if (refs.size >= MAX_REFS) break
+    if (!body.includes(url)) refs.add(url)
+  }
+  if (refs.size === 0) return body
+  return [body, [...refs].join(" ")].filter(Boolean).join("\n")
+}
+
 function hasTable(db: Database, name: string): boolean {
   return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined
 }
@@ -129,7 +150,8 @@ function projectsFrom(statement: Statement): Map<string, Project> {
 // OpenCode 2: one row per message, the text inside its JSON content.
 function v2Source(db: Database): Source {
   const content =
-    "CASE type WHEN 'user' THEN json_extract(data, '$.text') ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10)) FROM json_each(data, '$.content') AS part WHERE json_extract(part.value, '$.type') = 'text') END"
+    "CASE type WHEN 'user' THEN json_extract(data, '$.text') ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10)) FROM json_each(data, '$.content') AS part WHERE json_extract(part.value, '$.type') = 'text') END AS text, " +
+    "CASE type WHEN 'assistant' THEN (SELECT group_concat(part.value, char(10)) FROM json_each(data, '$.content') AS part WHERE json_extract(part.value, '$.type') = 'tool' AND part.value LIKE '%github.com/%') END AS refs"
   const sessions = db.prepare(
     "SELECT id, title, directory, project_id AS projectID, parent_id AS parentID, time_created AS created, time_updated AS updated FROM session_v2",
   )
@@ -137,9 +159,9 @@ function v2Source(db: Database): Source {
     "SELECT id, type AS role, time_created AS created, time_updated AS updated FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant')",
   )
   const texts = db.prepare(
-    `SELECT id, ${content} AS text FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant')`,
+    `SELECT id, ${content} FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant')`,
   )
-  const one = db.prepare(`SELECT ${content} AS text FROM session_message WHERE id = ?`)
+  const one = db.prepare(`SELECT ${content} FROM session_message WHERE id = ?`)
   const projects = db.prepare("SELECT id, worktree, name FROM project")
   const directory = hasTable(db, "project_directory")
     ? db.prepare("SELECT project_id FROM project_directory WHERE directory = ? LIMIT 1")
@@ -147,8 +169,8 @@ function v2Source(db: Database): Source {
   return {
     sessions: () => sessions.all() as SessionRow[],
     stamps: (sessionID) => stamps.all(sessionID) as Stamp[],
-    texts: (sessionID) => new Map(texts.all(sessionID).map((row) => [String(row.id), text(row.text)])),
-    text: (messageID) => text(one.get(messageID)?.text),
+    texts: (sessionID) => new Map(texts.all(sessionID).map((row) => [String(row.id), withRefs(row)])),
+    text: (messageID) => withRefs(one.get(messageID)),
     projects: () => projectsFrom(projects),
     projectOf: (path) => directory?.get(path)?.project_id as string | undefined,
   }
@@ -157,21 +179,22 @@ function v2Source(db: Database): Source {
 // OpenCode 1: messages and their parts in two tables. A message changes when any part does.
 function v1Source(db: Database): Source {
   const content =
-    "(SELECT group_concat(json_extract(p.data, '$.text'), char(10)) FROM part p WHERE p.message_id = m.id AND json_extract(p.data, '$.type') = 'text' AND coalesce(json_extract(p.data, '$.synthetic'), 0) = 0 AND coalesce(json_extract(p.data, '$.ignored'), 0) = 0)"
+    "(SELECT group_concat(json_extract(p.data, '$.text'), char(10)) FROM part p WHERE p.message_id = m.id AND json_extract(p.data, '$.type') = 'text' AND coalesce(json_extract(p.data, '$.synthetic'), 0) = 0 AND coalesce(json_extract(p.data, '$.ignored'), 0) = 0) AS text, " +
+    "(SELECT group_concat(p.data, char(10)) FROM part p WHERE p.message_id = m.id AND json_extract(p.data, '$.type') = 'tool' AND p.data LIKE '%github.com/%') AS refs"
   const sessions = db.prepare(
     "SELECT id, title, directory, project_id AS projectID, parent_id AS parentID, time_created AS created, time_updated AS updated FROM session",
   )
   const stamps = db.prepare(
     "SELECT m.id AS id, json_extract(m.data, '$.role') AS role, m.time_created AS created, max(m.time_updated, coalesce((SELECT max(p.time_updated) FROM part p WHERE p.message_id = m.id), 0)) AS updated FROM message m WHERE m.session_id = ? AND json_extract(m.data, '$.role') IN ('user', 'assistant')",
   )
-  const texts = db.prepare(`SELECT m.id AS id, ${content} AS text FROM message m WHERE m.session_id = ?`)
-  const one = db.prepare(`SELECT ${content} AS text FROM message m WHERE m.id = ?`)
+  const texts = db.prepare(`SELECT m.id AS id, ${content} FROM message m WHERE m.session_id = ?`)
+  const one = db.prepare(`SELECT ${content} FROM message m WHERE m.id = ?`)
   const projects = db.prepare("SELECT id, worktree, name FROM project")
   return {
     sessions: () => sessions.all() as SessionRow[],
     stamps: (sessionID) => stamps.all(sessionID) as Stamp[],
-    texts: (sessionID) => new Map(texts.all(sessionID).map((row) => [String(row.id), text(row.text)])),
-    text: (messageID) => text(one.get(messageID)?.text),
+    texts: (sessionID) => new Map(texts.all(sessionID).map((row) => [String(row.id), withRefs(row)])),
+    text: (messageID) => withRefs(one.get(messageID)),
     projects: () => projectsFrom(projects),
     projectOf: () => undefined,
   }

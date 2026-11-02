@@ -51,7 +51,7 @@ export function databasePath(channel?: string): string {
 export function indexPath(database: string, flavor: Flavor): string {
   const cache = process.env.XDG_CACHE_HOME || join(homedir(), ".cache")
   const id = createHash("sha256").update(database).digest("hex").slice(0, 12)
-  return join(cache, "opencode-search-sessions", `${flavor}-${id}.sqlite`)
+  return join(cache, "opencode-find-sessions", `${flavor}-${id}.sqlite`)
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
