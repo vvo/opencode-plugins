@@ -46,3 +46,10 @@ This repository publishes independent OpenCode plugins from `packages/`.
 ## Releasing
 
 Changesets publishes packages independently through npm trusted publishing. Each published package must configure `vvo/opencode-plugins`, workflow `release.yml`, as its trusted publisher.
+
+A new package needs one manual publish first, since trusted publishing only works on a package that exists:
+
+- Check the name is free on npm before building on it (`npm view <name>`). `opencode-search-sessions` was taken, hence `opencode-find-sessions`.
+- Vincent runs the publish himself: npm's 2FA and his package-scoped granular tokens block agents and new packages (E403).
+- Never touch `~/.npmrc`: its default registry is a work proxy. Use a throwaway config: `export NPM_CONFIG_USERCONFIG=$(mktemp)`, `npm login --registry https://registry.npmjs.org/ --auth-type=web`, then `npm publish --access public --registry https://registry.npmjs.org/` from the package directory at version `0.0.0`, then delete the temp file.
+- Then add the trusted publisher on npmjs.com and merge the release PR, which publishes the real version.
