@@ -273,6 +273,14 @@ test("only extracts pull requests created by gh", () => {
   assert.equal(extractCreatedPullRequests("gh pr create --draft", url)[0].url, url)
 })
 
+test("ignores other PR links in the output of a command that creates one", () => {
+  const url = "https://github.com/vvo/review-factory/pull/10"
+  const output = [url, "2026-11-05T08:35:08.189Z INFO [review:vercel/api#105294] posted https://github.com/vercel/api/pull/105294#pullrequestreview-1", "See https://github.com/vercel/api/pull/99614"].join("\n")
+  assert.deepEqual(extractCreatedPullRequests("gh pr create --draft; tail engine.log", output).map((pr) => pr.url), [url])
+  const json = `{"number":12,"html_url":"https://github.com/vercel/api/pull/12","body":"follows https://github.com/vercel/api/pull/11"}`
+  assert.deepEqual(extractCreatedPullRequests("gh api repos/vercel/api/pulls -X POST -f title=t", json).map((pr) => pr.url), ["https://github.com/vercel/api/pull/12"])
+})
+
 test("extracts pull requests created through the REST API", () => {
   const url = "https://github.com/vercel/api/pull/92184"
   const created = (command) => extractCreatedPullRequests(command, `${url} draft=true #92184\n`).length

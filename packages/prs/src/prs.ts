@@ -367,9 +367,13 @@ function createsPullRequest(command: string): boolean {
   return GH_API_BODY.test(call)
 }
 
+// What gh prints for the PR it made: `gh pr create` and `--jq .html_url` put the URL at the start of a line, and plain
+// `gh api` returns it as `html_url`. Other links in the same output (a log, a list) are not the PR this command made.
+const CREATED_URL = /^\s*["']?(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+)|"html_url"\s*:\s*"(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+)"/gm
+
 export function extractCreatedPullRequests(command: string, output: string): PullRequestRef[] {
   if (!createsPullRequest(command)) return []
-  return extractPullRequests(output)
+  return extractPullRequests([...output.matchAll(CREATED_URL)].map((match) => match[1] ?? match[2]).join("\n"))
 }
 
 export function uniquePullRequests(refs: Iterable<PullRequestRef>): PullRequestRef[] {
