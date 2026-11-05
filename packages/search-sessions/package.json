@@ -1,6 +1,6 @@
 {
   "name": "opencode-find-sessions",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "OpenCode TUI plugin: full-text, typo-tolerant search across every session's prompts and responses",
   "type": "module",
   "exports": {
