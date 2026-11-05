@@ -337,7 +337,8 @@ function refsFromV2(messages: readonly Message[], sessionCreated: number | undef
       if (!content || typeof content !== "object") continue
       const part = content as ShellToolPart
       if (part.type !== "tool" || part.name !== "shell" || part.state?.status !== "completed") continue
-      refs.push(...extractCreatedPullRequests(part.state.input?.command ?? "", JSON.stringify(part.state.content)))
+      const output = (part.state.content ?? []).map((entry) => (typeof (entry as { text?: unknown })?.text === "string" ? (entry as { text: string }).text : "")).join("\n")
+      refs.push(...extractCreatedPullRequests(part.state.input?.command ?? "", output))
     }
   }
   return refs
