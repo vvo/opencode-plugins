@@ -10,11 +10,62 @@ export type Entry = {
   user: boolean
   cost: number
   created: number
+  /** Display label of the model that produced the cost. */
+  model?: string
 }
 
 export type Child = {
   cost: number
   created: number
+  model?: string
+}
+
+export type ModelSpend = {
+  model: string
+  cost: number
+}
+
+/** Rows shown before the rest fold into one "others" row. */
+const MODEL_ROWS = 4
+
+/**
+ * Session spend per model, most expensive first. Empty when one model did all
+ * the work, since the `spent` line already says it.
+ *
+ * `since` is the session's creation time: a fork copies its parent's messages
+ * with their original costs and timestamps, and those were paid by the parent.
+ */
+export function computeModels(
+  entries: Iterable<Entry>,
+  children: Iterable<Child> = [],
+  since = 0,
+): ModelSpend[] {
+  const byID = new Map<string, Entry>()
+  for (const entry of entries) byID.set(entry.id, entry)
+
+  const totals = new Map<string, number>()
+  const add = (model: string | undefined, cost: number) => {
+    if (cost <= 0) return
+    const key = model ?? "subagents"
+    totals.set(key, (totals.get(key) ?? 0) + cost)
+  }
+  for (const entry of byID.values()) if (!entry.user && entry.created >= since) add(entry.model, entry.cost)
+  for (const child of children) add(child.model, child.cost)
+
+  const rows = [...totals].map(([model, cost]) => ({ model, cost })).sort((a, b) => b.cost - a.cost)
+  if (rows.length < 2) return []
+  if (rows.length <= MODEL_ROWS) return rows
+  const rest = rows.slice(MODEL_ROWS - 1)
+  return [
+    ...rows.slice(0, MODEL_ROWS - 1),
+    { model: `${rest.length} others`, cost: rest.reduce((sum, row) => sum + row.cost, 0) },
+  ]
+}
+
+/** `vercel` + `anthropic/claude-opus-5.5` + `max` -> `claude-opus-5.5 max`. */
+export function modelLabel(id: string, variant?: string): string {
+  const name = id.split("/").at(-1) || id
+  return variant && variant !== "default" ? `${name} ${variant}` : name
 }
 
 export type Turns = {
