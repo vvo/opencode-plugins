@@ -81,12 +81,27 @@ function ContextBlock(props: {
           {props.context()?.percent !== undefined ? <text fg={props.fg}>{props.context()!.percent}% used</text> : null}
           {props.spent() > 0 ? <text fg={props.fg}>{money.format(props.spent())} spent</text> : null}
           <For each={props.models()}>
-            {(row) => (
-              <text fg={props.fg}>
-                {"  "}
-                {money.format(row.cost)} {row.model}
-              </text>
-            )}
+            {(row) => {
+              // Labels are "<model> <variant>"; only the model part gives way on a narrow sidebar.
+              const [name, ...variant] = row.model.split(" ")
+              return (
+                <box flexDirection="row">
+                  <text fg={props.fg} flexShrink={0} wrapMode="none">
+                    {"  "}
+                    {money.format(row.cost)}{" "}
+                  </text>
+                  <text fg={props.fg} flexShrink={1} minWidth={0} wrapMode="none" truncate>
+                    {name}
+                  </text>
+                  {variant.length ? (
+                    <text fg={props.fg} flexShrink={0} wrapMode="none">
+                      {" "}
+                      {variant.join(" ")}
+                    </text>
+                  ) : null}
+                </box>
+              )
+            }}
           </For>
           {costs() ? (
             <text fg={props.fg}>
