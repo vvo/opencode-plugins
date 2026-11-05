@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { computeContext, computeTurns } from "../dist/turns.js"
+import { computeContext, computeModels, computeTurns, modelLabel } from "../dist/turns.js"
 
 const user = (id, created) => ({ id, user: true, cost: 0, created })
 const msg = (id, created, cost) => ({ id, user: false, cost, created })
@@ -102,4 +102,54 @@ test("hides itself when the revert target is not loaded", () => {
 
 test("hides itself when the newest usage is zero", () => {
   assert.equal(computeContext([reply("1", 0)], 1000), undefined)
+})
+
+const spend = (id, created, cost, model) => ({ id, user: false, cost, created, model })
+
+test("models: one model shows nothing, the spent line already says it", () => {
+  assert.deepEqual(computeModels([spend("1", 1, 2, "a"), spend("2", 2, 1, "a")]), [])
+})
+
+test("models: sums per model, most expensive first", () => {
+  const entries = [user("0", 0), spend("1", 1, 1, "a"), spend("2", 2, 3, "b"), spend("3", 3, 1, "a")]
+  assert.deepEqual(computeModels(entries), [
+    { model: "b", cost: 3 },
+    { model: "a", cost: 2 },
+  ])
+})
+
+test("models: skips messages a fork copied from its parent", () => {
+  const entries = [spend("1", 1, 50, "a"), spend("2", 10, 3, "b"), spend("3", 11, 1, "a")]
+  assert.deepEqual(computeModels(entries, [], 10), [
+    { model: "b", cost: 3 },
+    { model: "a", cost: 1 },
+  ])
+})
+
+test("models: subagents count under their own model", () => {
+  const children = [
+    { cost: 2, created: 5, model: "worker" },
+    { cost: 1, created: 6 },
+  ]
+  assert.deepEqual(computeModels([spend("1", 1, 3, "a")], children), [
+    { model: "a", cost: 3 },
+    { model: "worker", cost: 2 },
+    { model: "subagents", cost: 1 },
+  ])
+})
+
+test("models: folds the long tail into one row", () => {
+  const entries = [5, 4, 3, 2, 1].map((cost, i) => spend(String(i), i, cost, `m${cost}`))
+  assert.deepEqual(computeModels(entries), [
+    { model: "m5", cost: 5 },
+    { model: "m4", cost: 4 },
+    { model: "m3", cost: 3 },
+    { model: "2 others", cost: 3 },
+  ])
+})
+
+test("modelLabel drops the provider prefix and the default variant", () => {
+  assert.equal(modelLabel("anthropic/claude-opus-5.5", "max"), "claude-opus-5.5 max")
+  assert.equal(modelLabel("anthropic/claude-opus-5.5", "default"), "claude-opus-5.5")
+  assert.equal(modelLabel("gpt-5"), "gpt-5")
 })

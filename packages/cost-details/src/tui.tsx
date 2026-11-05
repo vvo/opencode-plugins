@@ -1,12 +1,15 @@
 /** @jsxImportSource @opentui/solid */
-import { createSignal, onCleanup, Show, type Accessor } from "solid-js"
+import { createSignal, For, onCleanup, Show, type Accessor } from "solid-js"
 import {
   computeContext,
+  computeModels,
   computeTurns,
+  modelLabel,
   type Child,
   type Context as ContextSize,
   type ContextMessage,
   type Entry,
+  type ModelSpend,
   type Turns,
 } from "./turns.js"
 
@@ -23,10 +26,9 @@ type Context = Plugin.Context
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
 
-/** How far back to page when backfilling; two user messages is all we display. */
+/** The per-model line needs the whole session, so the backfill pages through all of it. */
 const BACKFILL_PAGE = 200
 const BACKFILL_PAGES = 50
-const BACKFILL_TURNS = 2
 /** Usage events arrive per step; the footer total waits for a quiet moment before asking again. */
 const TODAY_DEBOUNCE_MS = 3_000
 
@@ -60,6 +62,7 @@ function createTracker(): Tracker {
 function ContextBlock(props: {
   context: () => ContextSize | undefined
   spent: () => number
+  models: () => ModelSpend[]
   turns: () => Turns
   fg: string | RGBA
   headerFg: string | RGBA
@@ -77,6 +80,29 @@ function ContextBlock(props: {
           {props.context() ? <text fg={props.fg}>{props.context()!.tokens.toLocaleString()} tokens</text> : null}
           {props.context()?.percent !== undefined ? <text fg={props.fg}>{props.context()!.percent}% used</text> : null}
           {props.spent() > 0 ? <text fg={props.fg}>{money.format(props.spent())} spent</text> : null}
+          <For each={props.models()}>
+            {(row) => {
+              // Labels are "<model> <variant>"; only the model part gives way on a narrow sidebar.
+              const [name, ...variant] = row.model.split(" ")
+              return (
+                <box flexDirection="row">
+                  <text fg={props.fg} flexShrink={0} wrapMode="none">
+                    {"  "}
+                    {money.format(row.cost)}{" "}
+                  </text>
+                  <text fg={props.fg} flexShrink={1} minWidth={0} wrapMode="none" truncate>
+                    {name}
+                  </text>
+                  {variant.length ? (
+                    <text fg={props.fg} flexShrink={0} wrapMode="none">
+                      {" "}
+                      {variant.join(" ")}
+                    </text>
+                  ) : null}
+                </box>
+              )
+            }}
+          </For>
           {costs() ? (
             <text fg={props.fg}>
               current {money.format(props.turns().current)}, previous {money.format(props.turns().previous)}
@@ -92,26 +118,30 @@ function ContextBlock(props: {
 // opencode 2
 // ---------------------------------------------------------------------------
 
+type V2Message = ReturnType<Context["data"]["session"]["message"]["list"]>[number]
+
+function entryV2(message: V2Message): Entry {
+  return {
+    id: message.id,
+    user: message.type === "user",
+    cost: "cost" in message ? (message.cost ?? 0) : 0,
+    created: message.time.created,
+    model: "model" in message && message.model ? modelLabel(message.model.id, message.model.variant) : undefined,
+  }
+}
+
 async function backfillV2(context: Context, sessionID: string, tracker: Tracker) {
   try {
     let cursor: string | undefined
-    let users = 0
-    for (let page = 0; page < BACKFILL_PAGES && users < BACKFILL_TURNS; page++) {
+    for (let page = 0; page < BACKFILL_PAGES; page++) {
       const res = await context.client.message.list({
         sessionID,
         limit: BACKFILL_PAGE,
         order: "desc",
         ...(cursor ? { cursor } : {}),
       })
-      for (const message of res.data) {
-        tracker.history.set(message.id, {
-          id: message.id,
-          user: message.type === "user",
-          cost: "cost" in message ? (message.cost ?? 0) : 0,
-          created: message.time.created,
-        })
-        if (message.type === "user" && ++users >= BACKFILL_TURNS) break
-      }
+      for (const message of res.data) tracker.history.set(message.id, entryV2(message))
+      tracker.bump()
       cursor = res.cursor.next ?? undefined
       if (!cursor) break
     }
@@ -123,7 +153,11 @@ async function backfillV2(context: Context, sessionID: string, tracker: Tracker)
     const children = await context.client.session.list({ parentID: sessionID, order: "desc" })
     for (const child of children.data) {
       if (!tracker.children.has(child.id))
-        tracker.children.set(child.id, { cost: child.cost ?? 0, created: child.time.created })
+        tracker.children.set(child.id, {
+          cost: child.cost ?? 0,
+          created: child.time.created,
+          model: child.model ? modelLabel(child.model.id, child.model.variant) : undefined,
+        })
     }
   } catch {
     // Subagent costs stay out until a usage event reports them.
@@ -160,9 +194,13 @@ function setup(context: Context) {
     if (!root || root === sessionID) return
     const tracker = trackers.get(root)
     if (!tracker) return
-    const created = context.data.session.get(sessionID)?.time.created
-    if (created === undefined) return
-    tracker.children.set(sessionID, { cost: cost ?? 0, created })
+    const child = context.data.session.get(sessionID)
+    if (!child) return
+    tracker.children.set(sessionID, {
+      cost: cost ?? 0,
+      created: child.time.created,
+      model: child.model ? modelLabel(child.model.id, child.model.variant) : undefined,
+    })
     tracker.bump()
   })
 
@@ -198,22 +236,19 @@ function setup(context: Context) {
       // carries the fuller figure.
       const spent = () => context.data.session.cost(sessionID)
 
-      const turns = () => {
+      const entries = () => {
         const tracker = track(sessionID)
         tracker.version()
-        const live = messages().map((message) => ({
-          id: message.id,
-          user: message.type === "user",
-          cost: "cost" in message ? (message.cost ?? 0) : 0,
-          created: message.time.created,
-        }))
-        return computeTurns([...tracker.history.values(), ...live], tracker.children.values())
+        return [...tracker.history.values(), ...messages().map(entryV2)]
       }
+      const turns = () => computeTurns(entries(), track(sessionID).children.values())
+      const models = () => computeModels(entries(), track(sessionID).children.values(), session()?.time.created)
 
       return (
         <ContextBlock
           context={size}
           spent={spent}
+          models={models}
           turns={turns}
           fg={context.theme.text.muted}
           headerFg={context.theme.text.base}
@@ -271,16 +306,21 @@ type V1Message = {
   tokens?: { input: number; output: number; reasoning: number; cache: { read: number; write: number } }
 }
 
+function entryV1(message: V1Message): Entry {
+  return {
+    id: message.id,
+    user: message.role === "user",
+    cost: message.role === "assistant" ? (message.cost ?? 0) : 0,
+    created: message.time.created,
+    model: message.modelID ? modelLabel(message.modelID) : undefined,
+  }
+}
+
 async function backfillV1(api: TuiPluginApi, sessionID: string, tracker: Tracker) {
   try {
     const res = await api.client.session.messages({ sessionID })
     for (const { info } of res?.data ?? []) {
-      tracker.history.set(info.id, {
-        id: info.id,
-        user: info.role === "user",
-        cost: info.role === "assistant" ? (info.cost ?? 0) : 0,
-        created: info.time.created,
-      })
+      tracker.history.set(info.id, entryV1(info))
     }
   } catch {
     // Live window only.
@@ -370,22 +410,24 @@ const tui: TuiPlugin = async (api) => {
 
         const spent = () => api.state.session.get(props.session_id)?.cost ?? 0
 
-        const turns = () => {
+        const entries = () => {
           const tracker = track(props.session_id)
           tracker.version()
-          const live = messages().map((message) => ({
-            id: message.id,
-            user: message.role === "user",
-            cost: message.cost ?? 0,
-            created: message.time.created,
-          }))
-          return computeTurns([...tracker.history.values(), ...live], tracker.children.values())
+          return [...tracker.history.values(), ...messages().map(entryV1)]
         }
+        const turns = () => computeTurns(entries(), track(props.session_id).children.values())
+        const models = () =>
+          computeModels(
+            entries(),
+            track(props.session_id).children.values(),
+            api.state.session.get(props.session_id)?.time.created,
+          )
 
         return (
           <ContextBlock
             context={size}
             spent={spent}
+            models={models}
             turns={turns}
             fg={api.theme.current.textMuted}
             headerFg={api.theme.current.text}

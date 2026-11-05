@@ -13,10 +13,13 @@ Part of [vvo/opencode-plugins](https://github.com/vvo/opencode-plugins).
 Context
 125,661 tokens
 13% used
-$0.85 spent
-current $0.12, previous $0.31
+$112.40 spent
+  $92.33 claude-opus-5.5 max
+  $18.60 claude-opus-5.5
+current $0.82, previous $1.07
 ```
 
+- The indented lines split the session's spend by model and variant, most expensive first. They only show once two or more models have spent money. Subagents count under their own model.
 - `current`: cost of the turn in progress (updates live while the agent works), or the last finished turn.
 - `previous`: cost of the turn before that.
 
@@ -62,7 +65,7 @@ opencode 1 leaves subagent spend out of that total entirely. opencode 2 adds it,
 
 The plugin renders the sidebar Context section itself: the same tokens, percent used, and spent lines opencode shows, plus the turn costs, so all four read as one group. The token and cost figures are computed the way the host computes them, and verified against the built-in section.
 
-A turn starts at every user message. Costs come from the TUI's own message state, which updates live while the agent works. Because that state only keeps the most recent messages (20 on opencode 2), the plugin also backfills the last two turns from the server on first render of a session, and fetches subagent sessions with their costs.
+A turn starts at every user message. Costs come from the TUI's own message state, which updates live while the agent works. Because that state only keeps the most recent messages (20 on opencode 2), the plugin also backfills the whole session from the server on first render, and fetches subagent sessions with their costs.
 
 Subagent spend is followed through `session.usage.updated` on opencode 2 and `session.updated` on opencode 1.
 
@@ -80,6 +83,8 @@ The default export is `{ id, tui, setup }`. opencode 1 validates and calls `tui`
 - A subagent's cost is attributed to the turn that created it. If a later turn resumes the same subagent, that extra spend still lands on the creation turn.
 - Only direct subagents are counted; a subagent's own subagents are not. opencode has the same limit: it fetches children by `parentID`, one level deep.
 - A `$` shell command counts as its own turn, because opencode records it as a user message.
+- In a forked session, the messages copied from the parent are left out of the per-model lines: the parent paid for them, and opencode leaves them out of `spent` too.
+- The per-model lines need the whole session, so the plugin pages through every message the first time it renders a session. A very long session takes a moment to fill them in.
 - The line is hidden until a turn has a non-zero cost, so a fresh session shows nothing.
 
 ## Development
