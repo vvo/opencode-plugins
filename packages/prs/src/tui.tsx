@@ -16,6 +16,7 @@ import {
   refreshInterval,
   fitPullRequestLabel,
   groupPullRequests,
+  groupPullRequestsByHost,
   marquee,
   predatesSession,
   pullRequestChecksIndicator,
@@ -288,29 +289,38 @@ type CheckSuiteRunsData = { nodes: (CheckSuiteRuns | null)[] }
 
 async function fetchPullRequests(refs: PullRequestRef[], cached: PullRequest[]): Promise<(PullRequest | undefined)[]> {
   if (refs.length === 0) return []
-  const data = await graphql<PullRequestsData>(pullRequestsQuery(refs))
+  const previous = new Map(cached.map((pr) => [pr.url, pr]))
+  const results = new Map<string, PullRequest | undefined>()
+  await Promise.all([...groupPullRequestsByHost(refs)].map(async ([host, hostRefs]) => {
+    const fetched = await fetchHostPullRequests(host, hostRefs, previous)
+    hostRefs.forEach((ref, index) => results.set(ref.url, fetched[index]))
+  }))
+  return refs.map((ref) => results.get(ref.url))
+}
+
+async function fetchHostPullRequests(host: string, refs: PullRequestRef[], previous: Map<string, PullRequest>): Promise<(PullRequest | undefined)[]> {
+  const data = await graphql<PullRequestsData>(host, pullRequestsQuery(refs))
   if (data) {
     const nodes = refs.map((_, index) => data[`pr${index}`]?.pullRequest)
-    const runs = await fetchCheckSuiteRuns(checkSuiteIdsNeedingRuns(nodes))
+    const runs = await fetchCheckSuiteRuns(host, checkSuiteIdsNeedingRuns(nodes))
     return refs.map((ref, index) => {
       const node = nodes[index]
       return node ? pullRequestFromNode(ref, node, runs) : undefined
     })
   }
   // REST has its own rate limit, so it still answers when GraphQL is exhausted.
-  const previous = new Map(cached.map((pr) => [pr.url, pr]))
   return Promise.all(refs.map((ref) => fetchPullRequestRest(ref, previous.get(ref.url))))
 }
 
-async function fetchCheckSuiteRuns(ids: string[]): Promise<Map<string, CheckSuiteRuns>> {
+async function fetchCheckSuiteRuns(host: string, ids: string[]): Promise<Map<string, CheckSuiteRuns>> {
   if (ids.length === 0) return new Map()
-  const data = await graphql<CheckSuiteRunsData>(checkSuiteRunsQuery(ids))
+  const data = await graphql<CheckSuiteRunsData>(host, checkSuiteRunsQuery(ids))
   return new Map((data?.nodes ?? []).flatMap((suite) => suite ? [[suite.id, suite] as const] : []))
 }
 
-async function graphql<T>(query: string): Promise<T | undefined> {
+async function graphql<T>(host: string, query: string): Promise<T | undefined> {
   // gh exits non-zero when one alias fails to resolve but still prints the data for the others.
-  const stdout = await execFileAsync("gh", ["api", "graphql", "-f", `query=${query}`])
+  const stdout = await execFileAsync("gh", ["api", "--hostname", host, "graphql", "-f", `query=${query}`])
     .then((result) => result.stdout)
     .catch((error: { stdout?: string }) => error.stdout ?? "")
   try {
@@ -322,7 +332,7 @@ async function graphql<T>(query: string): Promise<T | undefined> {
 
 async function fetchPullRequestRest(ref: PullRequestRef, cached: PullRequest | undefined): Promise<PullRequest | undefined> {
   try {
-    const { stdout } = await execFileAsync("gh", ["api", `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`])
+    const { stdout } = await execFileAsync("gh", ["api", "--hostname", ref.host, `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`])
     return pullRequestFromRest(ref, JSON.parse(stdout) as RestPullRequest, cached)
   } catch {
     return undefined
