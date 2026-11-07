@@ -86,13 +86,14 @@ pnpm dev:unlink
 
 ## Releasing
 
-Releases use [Changesets](https://changesets.dev) and npm trusted publishing. There is no npm token in the repository.
+Releases use [Changesets](https://changesets.dev) and npm [staged publishing](https://docs.npmjs.com/staged-publishing) through trusted publishing. There is no npm token in the repository, and nothing goes live on npm without a maintainer's 2FA.
 
 1. Run `pnpm changeset` in a feature branch and commit the generated file.
 2. Merge the feature PR. CI opens or updates `release: version packages`.
-3. Merge the release PR. CI publishes every changed package to npm.
+3. Merge the release PR. CI stages every changed package on npm and tags the release.
+4. Approve each staged version on npmjs.com (package → Staged Packages → Approve), or with `npm stage list` and `npm stage approve <id>`.
 
-Each npm package must trust the `release.yml` workflow in `vvo/opencode-plugins`.
+Each npm package must trust the `release.yml` workflow in `vvo/opencode-plugins`, with only `npm stage publish` allowed. The job that holds the npm token installs no dependencies: it stages tarballs that an earlier job built and tested.
 
 ## License
 

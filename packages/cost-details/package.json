@@ -15,7 +15,6 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc",
     "test": "npm run build && node --test test/turns.test.js",
-    "release": "changeset publish",
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "keywords": [

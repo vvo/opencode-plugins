@@ -45,4 +45,4 @@ This repository publishes independent OpenCode plugins from `packages/`.
 
 ## Releasing
 
-Changesets publishes packages independently through npm trusted publishing. Each published package must configure `vvo/opencode-plugins`, workflow `release.yml`, as its trusted publisher.
+Changesets versions packages; `scripts/release.mjs` stages them on npm through trusted publishing, and Vincent approves each staged version with 2FA. Each published package must configure `vvo/opencode-plugins`, workflow `release.yml`, as its trusted publisher, with only `npm stage publish` allowed. Keep the job holding `id-token: write` free of dependency installs.
