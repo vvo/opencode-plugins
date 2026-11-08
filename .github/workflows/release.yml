@@ -1,14 +1,13 @@
-# Stages new versions on npm with trusted publishing (OIDC). No NPM_TOKEN anywhere.
+# Publishes new versions on npm with trusted publishing (OIDC). No NPM_TOKEN anywhere.
 #
 # Each npm trusted publisher must be configured with this exact filename
 # (release.yml), at npmjs.com -> package -> Settings -> Trusted publishing,
-# with only `npm stage publish` allowed. npm does not validate that config on
-# save, so a mismatch only shows up here as an ENEEDAUTH failure.
+# with `npm publish` allowed. npm does not validate that config on save, so a
+# mismatch only shows up here as an ENEEDAUTH failure.
 #
-# A staged version goes live once a maintainer approves it with 2FA on
-# npmjs.com or with `npm stage approve`. The job that holds the OIDC token
-# installs no dependencies: it only runs Node, npm and scripts/release.mjs on
-# tarballs built by the `build` job.
+# Merging the "release: version packages" PR is the approval. The job that
+# holds the OIDC token installs no dependencies: it only runs Node, npm and
+# scripts/release.mjs on tarballs built by the `build` job.
 name: Release
 
 on:
@@ -57,14 +56,14 @@ jobs:
           path: ${{ runner.temp }}/packs
           retention-days: 7
 
-  stage:
+  publish:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # mint the OIDC token npm exchanges for a stage token
+      id-token: write # mint the OIDC token npm exchanges for a publish token
     outputs:
-      staged: ${{ steps.stage.outputs.staged }}
+      published: ${{ steps.publish.outputs.published }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,7 +78,7 @@ jobs:
           registry-url: https://registry.npmjs.org/
           package-manager-cache: false
 
-      # `npm stage` needs npm >= 11.15.
+      # Trusted publishing needs npm >= 11.5.1; pinned so the job never picks up a new npm on its own.
       - run: npm install --global --ignore-scripts npm@11.21.2
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -87,11 +86,11 @@ jobs:
           name: packs
           path: ${{ runner.temp }}/packs
 
-      - id: stage
-        run: node scripts/release.mjs stage "$RUNNER_TEMP/packs"
+      - id: publish
+        run: node scripts/release.mjs publish "$RUNNER_TEMP/packs"
 
   version:
-    needs: stage
+    needs: publish
     runs-on: ubuntu-latest
     permissions:
       contents: write # commit the version bump, push tags, create the release
@@ -112,11 +111,11 @@ jobs:
 
       # With changesets present: opens/updates the version PR.
       # With none present (the version PR just merged): tags and releases
-      # what the stage job staged. Pinned by SHA because upstream only ships a
+      # what the publish job published. Pinned by SHA because upstream only ships a
       # mutable `v2` branch, not a floating `v2` tag.
       - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         env:
-          STAGED: ${{ needs.stage.outputs.staged }}
+          PUBLISHED: ${{ needs.publish.outputs.published }}
         with:
           publish-script: node scripts/release.mjs tags
           commit-message: "release: version packages"
