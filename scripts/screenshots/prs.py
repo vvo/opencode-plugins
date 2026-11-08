@@ -25,8 +25,11 @@ How it works:
    as the earlier hand-made assets. A cursor SVG is placed on the lower half
    of the first title for the animation frames.
 5. Assembles the GIF: 1.1s rest, 120ms per marquee step, 2.1s rest, plays once.
+6. Types `/prs` to open the panel, moves the selection with `j` and `k`, captures
+   the panel after each key and assembles a second GIF from it.
 
-Outputs assets/prs-<mode>.png and assets/prs-hover-<mode>-v7.gif.
+Outputs assets/prs-<mode>.png, assets/prs-hover-<mode>-v7.gif and
+assets/prs-panel-<mode>-<PANEL_SUFFIX>.gif.
 Bump the gif suffix (and the README references) when the animation changes:
 GitHub caches by filename.
 """
@@ -38,6 +41,8 @@ ASSETS = os.path.join(ROOT, "assets")
 PLUGIN = os.path.join(ROOT, "packages/prs/dist")
 SESSION = "ses_screenshots0000000000prs"
 GIF_SUFFIX = "v7"
+PANEL_SUFFIX = "v1"
+PANEL_KEYS = ["j", "j", "j", "k", "k", "k"]
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 PR_URLS = [  # order of creation, sidebar sorts them itself
@@ -162,7 +167,24 @@ def capture_frames(launcher, outdir):
         if len(frames) > 3 and key == frames[0][0]:
             break
         time.sleep(0.06)
+    tmux("send-keys", "-t", "shots", "-l", "/prs")
+    time.sleep(0.5)
+    tmux("send-keys", "-t", "shots", "Enter")
+    for _ in range(30):
+        time.sleep(0.3)
+        if "j/k move" in "".join(plain()):
+            break
+    else:
+        sys.exit("the /prs panel did not open")
+    time.sleep(1)
+    panel = [styled()]
+    for key in PANEL_KEYS:
+        tmux("send-keys", "-t", "shots", key)
+        time.sleep(0.5)
+        panel.append(styled())
     subprocess.run(TMUX + ["kill-server"], capture_output=True)
+    for i, snap in enumerate(panel):
+        open(os.path.join(outdir, f"panel-{i:02d}.ansi"), "w").write(snap)
     for i, (_, snap) in enumerate(frames):
         open(os.path.join(outdir, f"frame-{i:02d}.ansi"), "w").write(snap)
     return len(frames)
@@ -246,6 +268,40 @@ def render(captures, outdir, cursor=None):
     return pngs
 
 
+def render_panel(captures, outdir, mode):
+    """The /prs panel, cropped from its header to its last line, in the search-sessions style."""
+    os.makedirs(outdir, exist_ok=True)
+    texts = [open(c, encoding="utf8").read() for c in captures]
+    strip = lambda line: re.sub(r"\x1b\[[0-9;:]*m", "", OSC.sub("", line))
+    first = [strip(l) for l in texts[0].split("\n")]
+    top = next(i for i, l in enumerate(first) if "j/k move" in l)
+    left = first[top].index("PRs") - 2
+    bottom = max(i for t in texts for i, l in enumerate(strip(x) for x in t.split("\n")) if l[left:].strip() and i < len(first) - 6) + 1
+    page_bg, default_fg = ("#ffffff", "#1a1a1a") if mode == "light" else ("#0a0a0a", "#eeeeee")
+    pngs = []
+    for index, text in enumerate(texts):
+        rows = []
+        for line in text.split("\n")[top:bottom + 1]:
+            row = parse_cells(line)
+            row += [(" ", None, None, False)] * (160 - len(row))
+            rows.append(row[left:160])
+        bg = next((c[2] for r in rows for c in r if c[2]), page_bg)
+        span = lambda ch, fg, cbg, bold: f'<span style="color:{fg or default_fg};background:{cbg or bg}' + (";font-weight:700" if bold else "") + f'">{html.escape(ch)}</span>'
+        body = "\n".join("".join(span(*c) for c in r) for r in rows)
+        w, h = len(rows[0]) * 12 + 56, len(rows) * 24 + 56
+        page = os.path.join(outdir, f"panel-{index:02d}.html")
+        open(page, "w", encoding="utf8").write(f"""<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>html,body{{margin:0;background:{bg}}}
+pre{{margin:28px;font:400 20px/24px 'IBM Plex Mono',monospace;white-space:pre;letter-spacing:0px;-webkit-font-smoothing:antialiased}}</style>
+</head><body><pre>{body}</pre></body></html>""")
+        png = os.path.join(outdir, f"panel-{index:02d}.png")
+        run(CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--virtual-time-budget=5000",
+            "--force-device-scale-factor=2", f"--window-size={w},{h}", f"--screenshot={png}", f"file://{page}")
+        pngs.append(png)
+    return pngs
+
+
 def build(mode, work):
     print(f"[{mode}] capturing")
     launcher = write_launcher(work, mode)
@@ -262,7 +318,12 @@ def build(mode, work):
     run("magick", "-dispose", "none", "-delay", "112", rest, "-delay", "12", *frames, "-delay", "212", rest,
         "-loop", "1", "-layers", "optimize", gif)
     run("gifsicle", "--batch", "-O3", gif)
-    print(f"[{mode}] wrote {png} and {gif}")
+    panel = render_panel(sorted(glob.glob(os.path.join(cap, "panel-*.ansi"))), os.path.join(out, "panel"), mode)
+    panel_gif = os.path.join(ASSETS, f"prs-panel-{mode}-{PANEL_SUFFIX}.gif")
+    delays = ["150"] + ["70"] * (len(panel) - 2) + ["200"]
+    run("magick", *[x for d, p in zip(delays, panel) for x in ("-delay", d, p)], "-loop", "0", "-layers", "optimize", panel_gif)
+    run("gifsicle", "--batch", "-O3", panel_gif)
+    print(f"[{mode}] wrote {png}, {gif} and {panel_gif}")
 
 
 def main():

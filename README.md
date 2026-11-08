@@ -6,12 +6,12 @@ Small plugins for [OpenCode](https://opencode.ai). Each package supports OpenCod
 
 ### [opencode-cost-details](packages/cost-details)
 
-Shows the current and previous prompt-turn cost in the sidebar Context section.
+Shows what the current and previous prompt turns cost in the sidebar Context section, and what each model spent in the session.
 
 <a href="packages/cost-details">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/cost-details-dark.png">
-    <img src="assets/cost-details-light.png" alt="Cost details in the OpenCode sidebar" width="640">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/cost-details-dark-v1.gif">
+    <img src="assets/cost-details-light-v1.gif" alt="A new turn on another model: the turn costs reset and a third model row appears" width="452">
   </picture>
 </a>
 
@@ -40,8 +40,8 @@ Searches every prompt and reply of every session, typos included. Open it with `
 
 <a href="packages/search-sessions">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/search-sessions-dark.png">
-    <img src="assets/search-sessions-light.png" alt="Search results with the matching words highlighted" width="640">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/search-sessions-dark-v1.gif">
+    <img src="assets/search-sessions-light-v1.gif" alt="Typing rate limit in the search dialog, results narrowing with the matching words highlighted" width="720">
   </picture>
 </a>
 

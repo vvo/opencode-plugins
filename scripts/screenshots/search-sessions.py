@@ -5,7 +5,8 @@
     python3 scripts/screenshots/search-sessions.py            # both themes
     python3 scripts/screenshots/search-sessions.py dark       # one theme
 
-Needs: opencode 2 (background service running), tmux, Google Chrome. Python 3 standard library only.
+Needs: opencode 2 (background service running), tmux, Google Chrome, ImageMagick (`magick`),
+gifsicle. Python 3 standard library only.
 
 How it works:
 1. Writes a fake OpenCode database (only the tables the plugin reads) with made-up
@@ -14,12 +15,15 @@ How it works:
    cli.json loads the built plugin with `database` and `index` options pointing at
    the fake database and a throwaway index.
 3. Captures the home screen, then opens the search dialog with ctrl+x f, types a
-   query and captures the results, with `tmux capture-pane -e` to keep the colors.
+   query one key at a time and captures the dialog after each key, then moves the
+   selection down twice. `tmux capture-pane -e` keeps the colors.
 4. Crops each capture to the part that matters and renders it with headless Chrome
    in IBM Plex Mono.
 
-Outputs assets/search-sessions-<mode>.png (the dialog) and
-assets/search-sessions-home-<mode>.png (the field under the home prompt).
+Outputs assets/search-sessions-<mode>.png (the dialog),
+assets/search-sessions-home-<mode>.png (the field under the home prompt) and
+assets/search-sessions-<mode>-<suffix>.gif (typing a query). Bump GIF_SUFFIX (and the
+README references) when the animation changes: GitHub caches by filename.
 """
 import html, json, os, re, sqlite3, subprocess, sys, tempfile, time
 
@@ -30,6 +34,7 @@ PLUGIN = os.path.join(ROOT, "packages/search-sessions/dist")
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 TMUX = ["tmux", "-L", "opencode-search-shots"]
 QUERY = "rate limit"
+GIF_SUFFIX = "v1"
 COLS, ROWS = 132, 42
 CELL_W, CELL_H, FONT_PX, MARGIN = 12, 24, 20, 28
 
@@ -173,14 +178,27 @@ def capture(launcher):
         scoped = "Search sessions in " in tmux("capture-pane", "-t", "shots", "-p")
         if scoped:
             tmux("send-keys", "-t", "shots", "C-a")
-        tmux("send-keys", "-t", "shots", "-l", QUERY)
+        time.sleep(0.5)
+        frames = [(tmux("capture-pane", "-t", "shots", "-p", "-e"), 100)]
+        for char in QUERY:
+            tmux("send-keys", "-t", "shots", "-l", char)
+            time.sleep(0.25)
+            frames.append((tmux("capture-pane", "-t", "shots", "-p", "-e"), 18))
         wait_for("sessions ·")
         time.sleep(1)
         dialog = tmux("capture-pane", "-t", "shots", "-p", "-e")
+        frames.append((dialog, 160))
+        for _ in range(2):
+            tmux("send-keys", "-t", "shots", "Down")
+            time.sleep(0.4)
+            frames.append((tmux("capture-pane", "-t", "shots", "-p", "-e"), 90))
+        frames[-1] = (frames[-1][0], 250)
+        tmux("send-keys", "-t", "shots", "Up")
+        tmux("send-keys", "-t", "shots", "Up")
         if scoped:
             tmux("send-keys", "-t", "shots", "C-a")
             time.sleep(0.5)
-        return home, dialog
+        return home, dialog, frames
     finally:
         subprocess.run(TMUX + ["kill-server"], capture_output=True)
 
@@ -258,7 +276,7 @@ letter-spacing:{CELL_W - FONT_PX * 0.6:.2f}px;-webkit-font-smoothing:antialiased
 
 def build(mode, work, database):
     print(f"[{mode}] capturing")
-    home, dialog = capture(write_launcher(work, mode, database))
+    home, dialog, frames = capture(write_launcher(work, mode, database))
     page_bg, fg = ("#ffffff", "#1a1a1a") if mode == "light" else ("#0a0a0a", "#eeeeee")
 
     # The dialog: from the row above its header to the row below its footer, edge to edge.
@@ -269,13 +287,25 @@ def build(mode, work, database):
     dialog_png = os.path.join(ASSETS, f"search-sessions-{mode}.png")
     render(crop(dialog, header - 1, footer + 1, left, left + width - 1), dialog_png, page_bg, fg, work)
 
+    # The animation: one crop for every frame, from the highest header to the lowest footer.
+    bounds = [(find(snap, "Search sessions")[0], find(snap, "ctrl+a")[0]) for snap, _ in frames]
+    top, bottom = min(b[0] for b in bounds) - 1, max(b[1] for b in bounds) + 1
+    args = []
+    for index, (snap, delay) in enumerate(frames):
+        png = os.path.join(work, f"search-{mode}-{index:03d}.png")
+        render(crop(snap, top, bottom, left, left + width - 1), png, page_bg, fg, work)
+        args += ["-delay", str(delay), png]
+    gif = os.path.join(ASSETS, f"search-sessions-{mode}-{GIF_SUFFIX}.gif")
+    run("magick", *args, "-loop", "0", "-layers", "optimize", gif)
+    run("gifsicle", "--batch", "-O3", "--colors", "128", gif)
+
     # Home: the prompt, its footer line and the search field under it. The field's bar sits
     # three cells before its text, in the prompt's column; the prompt is at most 75 wide.
     field, column = find(home, "Search sessions")
     prompt, _ = find(home, "Ask anything")
     home_png = os.path.join(ASSETS, f"search-sessions-home-{mode}.png")
     render(crop(home, prompt - 2, field + 1, column - 5, column + 73), home_png, page_bg, fg, work)
-    print(f"[{mode}] wrote {dialog_png} and {home_png}")
+    print(f"[{mode}] wrote {dialog_png}, {home_png} and {gif}")
 
 
 def main():

@@ -11,6 +11,11 @@ The sidebar section is collapsible. Each pull request uses a full-width linked t
 
 On opencode 2, `/prs` (or clicking the `PRs` header) opens a panel beside the conversation with every PR of the session at full width: title, `repo#number`, status, unresolved comments, diff size, and for open PRs the failing and running checks by name plus a `✓ 397 passing, 56 skipped of 462` line. Keys while the panel has focus: `j`/`k` or arrows move, `enter` or `o` opens the PR in the browser, `c` copies it for Slack, `C` copies the open and draft ones, `r` refreshes, `f` toggles full screen, `q` or `esc` closes. Clicking a row selects it, clicking a title opens it. The `▼` on the sidebar header still folds the section.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/prs-panel-dark-v1.gif">
+  <img src="../../assets/prs-panel-light-v1.gif" alt="The /prs panel, with the selection moving down the pull requests and back" width="720">
+</picture>
+
 ## Install
 
 OpenCode 2, in `~/.config/opencode/cli.json`:
