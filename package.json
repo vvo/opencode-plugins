@@ -9,8 +9,7 @@
     "dev:link": "pnpm build && node scripts/dev-link.mjs link",
     "dev:unlink": "node scripts/dev-link.mjs unlink",
     "typecheck": "pnpm --recursive typecheck",
-    "test": "pnpm --recursive test",
-    "release": "changeset publish"
+    "test": "pnpm --recursive test"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1"

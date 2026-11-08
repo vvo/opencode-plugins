@@ -1,9 +1,14 @@
-# Publishes to npm with trusted publishing (OIDC). No NPM_TOKEN anywhere.
+# Stages new versions on npm with trusted publishing (OIDC). No NPM_TOKEN anywhere.
 #
 # Each npm trusted publisher must be configured with this exact filename
-# (release.yml) at npmjs.com -> package -> Settings ->
-# Trusted publishing. npm does not validate that config on save, so a mismatch
-# only shows up here as an ENEEDAUTH failure.
+# (release.yml), at npmjs.com -> package -> Settings -> Trusted publishing,
+# with only `npm stage publish` allowed. npm does not validate that config on
+# save, so a mismatch only shows up here as an ENEEDAUTH failure.
+#
+# A staged version goes live once a maintainer approves it with 2FA on
+# npmjs.com or with `npm stage approve`. The job that holds the OIDC token
+# installs no dependencies: it only runs Node, npm and scripts/release.mjs on
+# tarballs built by the `build` job.
 name: Release
 
 on:
@@ -17,44 +22,102 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # commit the version bump, push tags, create the release
-      pull-requests: write # open/update the "Version Packages" PR
-      id-token: write # mint the OIDC token npm exchanges for a publish token
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # Node 24 ships npm 11.x, and OIDC publishing needs npm >= 11.5.1.
-      # Node 22 ships npm 10.9.x, which is too old, so this pin replaces the
-      # `npm install -g npm@latest` step most guides add.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          # Writes the .npmrc pointing at the npm registry. Required even with
-          # OIDC, but deliberately without NODE_AUTH_TOKEN: a token in the
-          # environment would take precedence over OIDC.
-          registry-url: https://registry.npmjs.org/
           package-manager-cache: false # never cache in a release build
 
       - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
         with:
           version: 10.15.1
 
-      - run: pnpm install --frozen-lockfile
+      # No package here needs an install script, so none gets to run.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - run: pnpm typecheck
 
       - run: pnpm test
 
-      # With changesets present: opens/updates the version PR.
-      # With none present (the version PR just merged): runs publish-script.
-      # v2 is required for OIDC; v1 always writes an NPM_TOKEN .npmrc, which
-      # blocks npm's OIDC auto-detection. Pinned by SHA because upstream only
-      # ships a mutable `v2` branch, not a floating `v2` tag.
-      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
+      - run: pnpm build
+
+      - run: node scripts/release.mjs pack "$RUNNER_TEMP/packs"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          publish-script: pnpm release
+          name: packs
+          path: ${{ runner.temp }}/packs
+          retention-days: 7
+
+  stage:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token npm exchanges for a stage token
+    outputs:
+      staged: ${{ steps.stage.outputs.staged }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Writes the .npmrc pointing at the npm registry. Required even with
+      # OIDC, but deliberately without NODE_AUTH_TOKEN: a token in the
+      # environment would take precedence over OIDC.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+
+      # `npm stage` needs npm >= 11.15.
+      - run: npm install --global --ignore-scripts npm@11.21.2
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packs
+          path: ${{ runner.temp }}/packs
+
+      - id: stage
+        run: node scripts/release.mjs stage "$RUNNER_TEMP/packs"
+
+  version:
+    needs: stage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the version bump, push tags, create the release
+      pull-requests: write # open/update the "Version Packages" PR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 10.15.1
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # With changesets present: opens/updates the version PR.
+      # With none present (the version PR just merged): tags and releases
+      # what the stage job staged. Pinned by SHA because upstream only ships a
+      # mutable `v2` branch, not a floating `v2` tag.
+      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
+        env:
+          STAGED: ${{ needs.stage.outputs.staged }}
+        with:
+          publish-script: node scripts/release.mjs tags
           commit-message: "release: version packages"
           pr-title: "release: version packages"
