@@ -25,7 +25,10 @@ This repository publishes independent OpenCode plugins from `packages/`.
 - Regenerate them with `pnpm build && python3 scripts/screenshots/prs.py`. It needs the OpenCode 2 background service, `tmux`, Google Chrome, `magick`, and `gifsicle`. It imports a fake session, runs the real TUI in tmux with a private `XDG_CONFIG_HOME`, shadows `gh` with `scripts/screenshots/gh` for canned PR data, injects mouse motion for the hover marquee, and renders the captured cells through headless Chrome with IBM Plex Mono. The script docstring has the details.
 - Change the PR mix in `scripts/screenshots/gh` (one PR per visible state, keep it to four rows). Bump `GIF_SUFFIX` in `prs.py` and the README references when the animation changes: GitHub caches GIFs by filename.
 - The cursor in the GIF sits on the lower half of the first title, slightly right of center (`CURSOR` in `prs.py`). Keep it there.
-- Regenerate the `opencode-find-sessions` screenshots (`assets/search-sessions-*.png`) with `pnpm build && python3 scripts/screenshots/search-sessions.py` when the dialog or the home field changes. It loads the plugin against a fake database, so no real session can show up in a public image.
+- The same script records the `/prs` panel GIF (`assets/prs-panel-*-v1.gif`). Bump `PANEL_SUFFIX` when the panel changes.
+- Regenerate the `opencode-find-sessions` screenshots and typing GIF (`assets/search-sessions-*`) with `pnpm build && python3 scripts/screenshots/search-sessions.py` when the dialog or the home field changes. It loads the plugin against a fake database, so no real session can show up in a public image.
+- Regenerate the `opencode-cost-details` image and GIF (`assets/cost-details-*`) with `pnpm build && python3 scripts/screenshots/cost-details.py` when the Context block changes. It imports a fake session and sends one real prompt to claude-sonnet-5.5 per theme (a few cents), and keeps only the Context block, so no MCP server or reply shows up.
+- Every GIF filename carries a suffix (`GIF_SUFFIX`, `PANEL_SUFFIX`). Bump it with the README references when the animation changes: GitHub caches GIFs by filename.
 
 ## Plugin compatibility
 

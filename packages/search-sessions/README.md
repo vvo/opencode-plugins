@@ -3,8 +3,8 @@
 Part of [vvo/opencode-plugins](https://github.com/vvo/opencode-plugins).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../assets/search-sessions-dark.png">
-  <img src="../../assets/search-sessions-light.png" alt="Search results for rate limit, with the matching words highlighted in titles and excerpts" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/search-sessions-dark-v1.gif">
+  <img src="../../assets/search-sessions-light-v1.gif" alt="Typing rate limit in the search dialog, results narrowing with the matching words highlighted in titles and excerpts" width="720">
 </picture>
 
 [OpenCode](https://opencode.ai) TUI plugin that searches every prompt and reply of every session, not only their titles. Typos are fine: `serach plugn` finds "search plugin". Each result shows the session title, its project, when it was last active and the part of the message that matched, with your words highlighted. A `┃` before an excerpt marks one of your own prompts, like in the session view. Pick a result with the arrow keys and Enter, or click it, and OpenCode opens that session.
@@ -73,4 +73,4 @@ pnpm typecheck
 pnpm test
 ```
 
-Regenerate the screenshots with `pnpm build && python3 scripts/screenshots/search-sessions.py`. They use a fake database, so no real session shows up in them.
+Regenerate the screenshots and the GIF with `pnpm build && python3 scripts/screenshots/search-sessions.py`. They use a fake database, so no real session shows up in them.

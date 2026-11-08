@@ -3,8 +3,8 @@
 Part of [vvo/opencode-plugins](https://github.com/vvo/opencode-plugins).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../assets/cost-details-dark.png">
-  <img src="../../assets/cost-details-light.png" alt="Cost details in the OpenCode sidebar" width="640">
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/cost-details-dark-v1.gif">
+  <img src="../../assets/cost-details-light-v1.gif" alt="A new turn on another model: the turn costs reset and a third model row appears" width="452">
 </picture>
 
 [OpenCode](https://opencode.ai) TUI plugin that shows how much each prompt turn costs, right in the sidebar:
