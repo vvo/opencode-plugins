@@ -1,5 +1,11 @@
 # opencode-cost-details
 
+## 0.6.0
+
+### Minor Changes
+
+- f7b8ce4: Split the session's spend by model and variant under the `spent` line, leaving out messages a fork copied from its parent.
+
 ## 0.5.0
 
 ### Minor Changes
