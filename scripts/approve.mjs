@@ -7,8 +7,10 @@ import { join, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 
 const root = resolve(import.meta.dirname, "..")
-const npm = (args) => execFileSync("npm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
-const interactive = (args) => spawnSync("npm", args, { stdio: "inherit" }).status === 0
+// A global .npmrc may point at a mirror; staging, login and approval only exist on the public registry.
+const registry = ["--registry", "https://registry.npmjs.org/"]
+const npm = (args) => execFileSync("npm", [...args, ...registry], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+const interactive = (args) => spawnSync("npm", [...args, ...registry], { stdio: "inherit" }).status === 0
 
 const names = readdirSync(join(root, "packages"))
   .map((entry) => JSON.parse(readFileSync(join(root, "packages", entry, "package.json"), "utf8")))
