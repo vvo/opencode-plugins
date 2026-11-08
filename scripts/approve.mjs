@@ -10,17 +10,33 @@ const root = resolve(import.meta.dirname, "..")
 const npm = (args) => execFileSync("npm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 const interactive = (args) => spawnSync("npm", args, { stdio: "inherit" }).status === 0
 
-try {
-  console.log(`npm user: ${npm(["whoami"]).trim()}`)
-} catch {
-  console.log("Not logged in to npm, opening npm login.")
-  if (!interactive(["login"])) process.exit(1)
-}
-
 const names = readdirSync(join(root, "packages"))
   .map((entry) => JSON.parse(readFileSync(join(root, "packages", entry, "package.json"), "utf8")))
   .filter((pkg) => !pkg.private)
   .map((pkg) => pkg.name)
+
+// Staged versions are only visible to a maintainer, any other account just sees "Nothing staged".
+const maintainers = new Set(
+  JSON.parse(npm(["view", names[0], "maintainers", "--json"])).map((m) => (typeof m === "string" ? m : m.name).split(" ")[0]),
+)
+const whoami = () => {
+  try {
+    return npm(["whoami"]).trim()
+  } catch {
+    return undefined
+  }
+}
+let user = whoami()
+if (!user || !maintainers.has(user)) {
+  console.log(user ? `npm user ${user} is not a maintainer (${[...maintainers].join(", ")}), opening npm login.` : "Not logged in to npm, opening npm login.")
+  if (!interactive(["login"])) process.exit(1)
+  user = whoami()
+  if (!user || !maintainers.has(user)) {
+    console.error(`Still logged in as ${user ?? "nobody"}, log in as ${[...maintainers].join(" or ")}.`)
+    process.exit(1)
+  }
+}
+console.log(`npm user: ${user}`)
 
 const done = /approved|published|rejected|expired/i
 const pending = names.flatMap((name) => JSON.parse(npm(["stage", "list", name, "--json"]) || "[]"))
