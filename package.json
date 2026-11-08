@@ -4,6 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.15.1",
   "scripts": {
+    "approve": "node scripts/approve.mjs",
     "build": "pnpm --recursive build",
     "dev": "node --watch-path=packages/cost-details/src --watch-path=packages/prs/src --watch-path=packages/awake/src --watch-path=packages/search-sessions/src scripts/build.mjs",
     "dev:link": "pnpm build && node scripts/dev-link.mjs link",

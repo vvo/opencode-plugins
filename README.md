@@ -91,7 +91,7 @@ Releases use [Changesets](https://changesets.dev) and npm [staged publishing](ht
 1. Run `pnpm changeset` in a feature branch and commit the generated file.
 2. Merge the feature PR. CI opens or updates `release: version packages`.
 3. Merge the release PR. CI stages every changed package on npm and tags the release.
-4. Approve each staged version on npmjs.com (package → Staged Packages → Approve), or with `npm stage list` and `npm stage approve <id>`.
+4. Run `pnpm approve`. It logs you in to npm if needed, lists the staged versions and approves them, one 2FA prompt each. npmjs.com works too: package → Staged Packages → Approve.
 
 Each npm package must trust the `release.yml` workflow in `vvo/opencode-plugins`, with only `npm stage publish` allowed. The job that holds the npm token installs no dependencies: it stages tarballs that an earlier job built and tested.
 
