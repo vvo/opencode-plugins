@@ -32,6 +32,10 @@ describe("searching an OpenCode 2 database", () => {
       .message("ses_fork", "user", "After the fork we renamed the flamingo flag", { created: NOW - DAY / 4 })
       .session("ses_child", { title: "Explore the code", parent: "ses_count" })
       .message("ses_child", "user", "Look for the narwhal module")
+      .session("ses_bot", { title: "Fix api#7 · CI", metadata: { factory: "review-bot", pr: "acme/api#7" } })
+      .message("ses_bot", "user", "Rerun the walrus job")
+      .session("ses_tagged", { title: "Tagged by hand", metadata: { color: "blue" }, updated: NOW - 40 * DAY })
+      .message("ses_tagged", "user", "Keep the pelican notes")
       .session("ses_typo", { title: "Typo heavy", updated: NOW - DAY + 5_000 })
       .message("ses_typo", "user", "the sesion list is slow")
       .session("ses_restore", { title: "Restore tabs", updated: NOW - DAY + 4_000 })
@@ -63,10 +67,12 @@ describe("searching an OpenCode 2 database", () => {
     assert.equal(marked(output.hits[0].snippet), "The count comes from the [GraphQL] query, which skips drafts.")
   })
 
-  test("leaves out reasoning, tool calls and subagent sessions", () => {
+  test("leaves out reasoning, tool calls, subagent sessions and an automation's own sessions", () => {
     assert.equal(engine.search({ query: "zebrafish" }).total, 0)
     assert.equal(engine.search({ query: "gh pr list" }).total, 0)
     assert.equal(engine.search({ query: "narwhal" }).total, 0)
+    assert.equal(engine.search({ query: "walrus" }).total, 0)
+    assert.deepEqual(ids(engine.search({ query: "pelican" })), ["ses_tagged"])
   })
 
   test("tolerates typos and unfinished words", () => {
@@ -126,7 +132,7 @@ describe("searching an OpenCode 2 database", () => {
 
   test("lists recent sessions with their first prompt when the query is empty", () => {
     const output = engine.search({ query: "" })
-    assert.deepEqual(ids(output), ["ses_fork", "ses_typo", "ses_restore", "ses_count", "ses_deploy", "ses_chores", "ses_pr_short", "ses_pr_url", "ses_pr_bare", "ses_pr_tool"])
+    assert.deepEqual(ids(output), ["ses_fork", "ses_typo", "ses_restore", "ses_count", "ses_deploy", "ses_chores", "ses_pr_short", "ses_pr_url", "ses_pr_bare", "ses_pr_tool", "ses_tagged"])
     assert.equal(marked(output.hits[3].snippet), "The sidebar shows the wrong number of pull requests")
     assert.equal(output.hits[3].role, "user")
   })

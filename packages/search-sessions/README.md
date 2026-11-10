@@ -54,7 +54,7 @@ Options go in the object form of the plugin entry:
 
 The plugin reads the OpenCode database read-only and keeps its own full-text index with SQLite FTS5, which ships with OpenCode's runtime, so the plugin has no dependencies. Indexing and searching run in a worker thread, so typing never waits for them. On 1,300 sessions (156k messages) the index takes 49 MB and most searches under 20 ms. The slowest, a word found in nearly every message such as "the", take around 40 ms.
 
-- It indexes session titles, your prompts and the text of replies. It skips reasoning, tool calls and subagent sessions. A fork only adds what was written after the fork, so it does not repeat its parent.
+- It indexes session titles, your prompts and the text of replies. It skips reasoning, tool calls, subagent sessions, and sessions an automation started and tagged with `factory` in their metadata, like a review bot's runs. A fork only adds what was written after the fork, so it does not repeat its parent.
 - GitHub pull request and issue links in tool calls are indexed too, so a session where `gh pr create` printed the link is found by it.
 - A pull request finds every way it was written: `https://github.com/acme/api/pull/1234`, `acme/api#1234` and `api#1234` all match each other. Numbers of 4 digits or more also match a bare `#1234`.
 - Results where one message holds every word come first, then typo corrections, then sessions where the words are spread over several messages. Within each group BM25 decides, a title match counts extra, and recent sessions get a boost.

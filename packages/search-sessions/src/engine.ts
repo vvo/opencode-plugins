@@ -84,6 +84,7 @@ type SessionRow = {
   readonly directory: string
   readonly projectID: string
   readonly parentID: string | null
+  readonly automated: number
   readonly created: number
   readonly updated: number
 }
@@ -141,6 +142,12 @@ function hasTable(db: Database, name: string): boolean {
   return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined
 }
 
+/** An automation tags the sessions it starts with `factory` in their metadata. Older databases have no metadata. */
+function automated(db: Database, table: string): string {
+  const metadata = db.prepare("SELECT 1 FROM pragma_table_info(?) WHERE name = 'metadata'").get(table) !== undefined
+  return metadata ? "coalesce(json_valid(metadata) AND json_extract(metadata, '$.factory') IS NOT NULL, 0) AS automated" : "0 AS automated"
+}
+
 function projectsFrom(statement: Statement): Map<string, Project> {
   return new Map(
     statement.all().map((row) => [String(row.id), { worktree: String(row.worktree ?? ""), name: (row.name as string) || null }]),
@@ -153,7 +160,7 @@ function v2Source(db: Database): Source {
     "CASE type WHEN 'user' THEN json_extract(data, '$.text') ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10)) FROM json_each(data, '$.content') AS part WHERE json_extract(part.value, '$.type') = 'text') END AS text, " +
     "CASE type WHEN 'assistant' THEN (SELECT group_concat(part.value, char(10)) FROM json_each(data, '$.content') AS part WHERE json_extract(part.value, '$.type') = 'tool' AND part.value LIKE '%github.com/%') END AS refs"
   const sessions = db.prepare(
-    "SELECT id, title, directory, project_id AS projectID, parent_id AS parentID, time_created AS created, time_updated AS updated FROM session_v2",
+    `SELECT id, title, directory, project_id AS projectID, parent_id AS parentID, ${automated(db, "session_v2")}, time_created AS created, time_updated AS updated FROM session_v2`,
   )
   const stamps = db.prepare(
     "SELECT id, type AS role, time_created AS created, time_updated AS updated FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant')",
@@ -182,7 +189,7 @@ function v1Source(db: Database): Source {
     "(SELECT group_concat(json_extract(p.data, '$.text'), char(10)) FROM part p WHERE p.message_id = m.id AND json_extract(p.data, '$.type') = 'text' AND coalesce(json_extract(p.data, '$.synthetic'), 0) = 0 AND coalesce(json_extract(p.data, '$.ignored'), 0) = 0) AS text, " +
     "(SELECT group_concat(p.data, char(10)) FROM part p WHERE p.message_id = m.id AND json_extract(p.data, '$.type') = 'tool' AND p.data LIKE '%github.com/%') AS refs"
   const sessions = db.prepare(
-    "SELECT id, title, directory, project_id AS projectID, parent_id AS parentID, time_created AS created, time_updated AS updated FROM session",
+    `SELECT id, title, directory, project_id AS projectID, parent_id AS parentID, ${automated(db, "session")}, time_created AS created, time_updated AS updated FROM session`,
   )
   const stamps = db.prepare(
     "SELECT m.id AS id, json_extract(m.data, '$.role') AS role, m.time_created AS created, max(m.time_updated, coalesce((SELECT max(p.time_updated) FROM part p WHERE p.message_id = m.id), 0)) AS updated FROM message m WHERE m.session_id = ? AND json_extract(m.data, '$.role') IN ('user', 'assistant')",
@@ -353,6 +360,8 @@ export class Engine {
     for (const session of sessions) {
       // Subagent sessions are the main agent talking to itself; their parent holds the conversation.
       if (session.parentID) continue
+      // An automation's own runs, like a review bot's fixes, would bury the person's sessions.
+      if (session.automated) continue
       live.add(session.id)
       const previous = known.get(session.id)
       if (previous === undefined || previous !== session.updated || now - session.updated < HOT_MS || hints.has(session.id)) {

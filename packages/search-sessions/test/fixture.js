@@ -18,7 +18,7 @@ export function v2Database(dir) {
     CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT NOT NULL, name TEXT);
     CREATE TABLE project_directory (project_id TEXT NOT NULL, directory TEXT NOT NULL);
     CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT, directory TEXT NOT NULL,
-      title TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
+      title TEXT, metadata TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
     CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
       time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);
   `)
@@ -30,10 +30,10 @@ export function v2Database(dir) {
       db.prepare("INSERT INTO project_directory (project_id, directory) VALUES (?, ?)").run(id, worktree)
       return api
     },
-    session(id, { title, project = "global", directory = "/home/me", parent = null, created = NOW - DAY, updated = created }) {
+    session(id, { title, project = "global", directory = "/home/me", parent = null, metadata = null, created = NOW - DAY, updated = created }) {
       db.prepare(
-        "INSERT INTO session_v2 (id, project_id, parent_id, directory, title, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, project, parent, directory, title ?? null, created, updated)
+        "INSERT INTO session_v2 (id, project_id, parent_id, directory, title, metadata, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, project, parent, directory, title ?? null, metadata && JSON.stringify(metadata), created, updated)
       return api
     },
     /** A user prompt, or an assistant reply made of text, reasoning and tool parts. */
