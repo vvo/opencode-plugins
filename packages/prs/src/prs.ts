@@ -296,44 +296,57 @@ export function groupPullRequests(prs: PullRequest[]): { active: PullRequest[]; 
   }
 }
 
-export function slackPullRequest(pr: PullRequest): string {
-  return `:pr: *${pr.owner}/${pr.repo}* · <${pr.url}|${pr.title} (#${pr.number})> +${pr.additions}/-${pr.deletions}`
-}
-
-export function slackPullRequests(prs: PullRequest[]): string {
-  if (prs.length === 1) return slackPullRequest(prs[0])
-  return prs.map((pr) => `- ${slackPullRequest(pr)}`).join("\n")
-}
-
 function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
 }
 
-export function slackPullRequestHtml(pr: PullRequest): string {
-  const repository = escapeHtml(`${pr.owner}/${pr.repo}`)
-  const url = escapeHtml(pr.url)
-  const title = escapeHtml(`${pr.title} (#${pr.number})`)
-  return `<meta charset='utf-8'><html><head></head><body>:pr: <b>${repository}</b> · <a href="${url}">${title}</a> +${pr.additions}/-${pr.deletions}</body></html>`
+function uint32(value: number): Buffer {
+  const buffer = Buffer.alloc(4)
+  buffer.writeUInt32LE(value)
+  return buffer
 }
 
-export function slackPullRequestsHtml(prs: PullRequest[]): string {
-  if (prs.length === 1) return slackPullRequestHtml(prs[0])
-  const items = prs.map((pr) => slackPullRequestHtml(pr).replace(/^.*<body>|<\/body><\/html>$/g, ""))
-  return `<meta charset='utf-8'><html><head></head><body><ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul></body></html>`
+function pickleString(value: string): Buffer {
+  const text = Buffer.from(value, "utf16le")
+  return Buffer.concat([uint32(value.length), text, Buffer.alloc(text.length % 4)])
 }
 
-export function slackPullRequestsTexty(prs: PullRequest[]): string | undefined {
-  if (prs.length < 2) return undefined
-  const ops = prs.flatMap((pr) => [
-    { insert: { slackemoji: { text: ":pr:" } } },
-    { insert: " " },
-    { attributes: { bold: true }, insert: `${pr.owner}/${pr.repo}` },
-    { insert: " · " },
-    { attributes: { link: pr.url }, insert: `${pr.title} (#${pr.number})` },
-    { insert: ` +${pr.additions}/-${pr.deletions}` },
-    { attributes: { list: "bullet" }, insert: "\n" },
-  ])
-  return JSON.stringify({ ops })
+/** Base64 `org.chromium.web-custom-data` pickle holding one type: Chromium apps like Slack only read custom clipboard types from it. */
+export function chromiumCustomData(type: string, value: string): string {
+  const payload = Buffer.concat([uint32(1), pickleString(type), pickleString(value)])
+  return Buffer.concat([uint32(payload.length), payload]).toString("base64")
+}
+
+/**
+ * Slack pastes `slack/texty`, its own format. Without it, Slack reads the plain text as Markdown and skips the HTML,
+ * so the plain text is Markdown too. Other editors take the HTML.
+ */
+export function pullRequestsClipboard(prs: PullRequest[]): { plain: string; html: string; chromium: string } {
+  const list = prs.length > 1
+  const lines = prs.map((pr) => {
+    const repo = `${pr.owner}/${pr.repo}`
+    const title = `${pr.title} (#${pr.number})`
+    const diff = ` +${pr.additions}/-${pr.deletions}`
+    return {
+      plain: `${list ? "- " : ""}:pr: **${repo}** · [${title.replace(/[\\[\]]/g, "\\$&")}](${pr.url})${diff}`,
+      html: `:pr: <b>${escapeHtml(repo)}</b> · <a href="${escapeHtml(pr.url)}">${escapeHtml(title)}</a>${diff}`,
+      ops: [
+        { insert: { slackemoji: { text: ":pr:" } } },
+        { insert: " " },
+        { attributes: { bold: true }, insert: repo },
+        { insert: " · " },
+        { attributes: { link: pr.url }, insert: title },
+        { insert: diff },
+        ...(list ? [{ attributes: { list: "bullet" }, insert: "\n" }] : []),
+      ],
+    }
+  })
+  const html = lines.map((line) => list ? `<li>${line.html}</li>` : line.html).join("")
+  return {
+    plain: lines.map((line) => line.plain).join("\n"),
+    html: `<meta charset='utf-8'>${list ? `<ul>${html}</ul>` : html}`,
+    chromium: chromiumCustomData("slack/texty", JSON.stringify({ ops: lines.flatMap((line) => line.ops) })),
+  }
 }
 
 const GITHUB_PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g
