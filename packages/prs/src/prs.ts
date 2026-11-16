@@ -296,8 +296,14 @@ export function groupPullRequests(prs: PullRequest[]): { active: PullRequest[]; 
   }
 }
 
+function escapeMarkdownLinkText(value: string): string {
+  return value.replace(/[\\[\]]/g, "\\$&")
+}
+
+/** Markdown, not Slack mrkdwn: Slack's composer parses pasted plain text as Markdown and never renders `<url|text>`. */
 export function slackPullRequest(pr: PullRequest): string {
-  return `:pr: *${pr.owner}/${pr.repo}* · <${pr.url}|${pr.title} (#${pr.number})> +${pr.additions}/-${pr.deletions}`
+  const title = escapeMarkdownLinkText(`${pr.title} (#${pr.number})`)
+  return `:pr: **${pr.owner}/${pr.repo}** · [${title}](${pr.url}) +${pr.additions}/-${pr.deletions}`
 }
 
 export function slackPullRequests(prs: PullRequest[]): string {
@@ -322,18 +328,43 @@ export function slackPullRequestsHtml(prs: PullRequest[]): string {
   return `<meta charset='utf-8'><html><head></head><body><ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul></body></html>`
 }
 
-export function slackPullRequestsTexty(prs: PullRequest[]): string | undefined {
-  if (prs.length < 2) return undefined
-  const ops = prs.flatMap((pr) => [
+function slackTextyOps(pr: PullRequest) {
+  return [
     { insert: { slackemoji: { text: ":pr:" } } },
     { insert: " " },
     { attributes: { bold: true }, insert: `${pr.owner}/${pr.repo}` },
     { insert: " · " },
     { attributes: { link: pr.url }, insert: `${pr.title} (#${pr.number})` },
     { insert: ` +${pr.additions}/-${pr.deletions}` },
-    { attributes: { list: "bullet" }, insert: "\n" },
-  ])
+  ]
+}
+
+/** Slack's own clipboard format, a Quill delta. Slack pastes it as is, ahead of HTML and its Markdown detection. */
+export function slackPullRequestTexty(pr: PullRequest): string {
+  return JSON.stringify({ ops: slackTextyOps(pr) })
+}
+
+export function slackPullRequestsTexty(prs: PullRequest[]): string {
+  if (prs.length === 1) return slackPullRequestTexty(prs[0])
+  const ops = prs.flatMap((pr) => [...slackTextyOps(pr), { attributes: { list: "bullet" }, insert: "\n" }])
   return JSON.stringify({ ops })
+}
+
+function pickleString16(value: string): Buffer {
+  const text = Buffer.from(value, "utf16le")
+  const length = Buffer.alloc(4)
+  length.writeUInt32LE(text.length / 2)
+  return Buffer.concat([length, text, Buffer.alloc((4 - (text.length % 4)) % 4)])
+}
+
+/** Base64 `org.chromium.web-custom-data` pasteboard value: Slack desktop, like any Chromium app, only reads custom clipboard types from it. */
+export function chromiumCustomData(entries: Record<string, string>): string {
+  const count = Buffer.alloc(4)
+  count.writeUInt32LE(Object.keys(entries).length)
+  const payload = Buffer.concat([count, ...Object.entries(entries).flatMap(([key, value]) => [pickleString16(key), pickleString16(value)])])
+  const size = Buffer.alloc(4)
+  size.writeUInt32LE(payload.length)
+  return Buffer.concat([size, payload]).toString("base64")
 }
 
 const GITHUB_PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\b|\/)/g

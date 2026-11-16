@@ -10,6 +10,7 @@ import {
   ACTIVE_REFRESH_MS,
   checkSuiteIdsNeedingRuns,
   checkSuiteRunsQuery,
+  chromiumCustomData,
   descendantPullRequests,
   extractCreatedPullRequests,
   isSettled,
@@ -27,6 +28,7 @@ import {
   pullRequestsQuery,
   slackPullRequest,
   slackPullRequestHtml,
+  slackPullRequestTexty,
   slackPullRequests,
   slackPullRequestsHtml,
   slackPullRequestsTexty,
@@ -90,7 +92,7 @@ function fade(color: string | RGBA, opacity: number): string | RGBA {
   return `#${[r, g, b, Math.round(opacity * 255)].map((value) => value.toString(16).padStart(2, "0")).join("")}`
 }
 
-async function copyRichText(plain: string, html: string, fallback: (text: string) => boolean, slackTexty?: string): Promise<boolean> {
+async function copyRichText(plain: string, html: string, slackTexty: string, fallback: (text: string) => boolean): Promise<boolean> {
   if (process.platform !== "darwin") return fallback(plain)
   try {
     // Payload goes through stdin: osascript parses a leading "- " as an option and dies on argv over about 1 KB.
@@ -102,12 +104,12 @@ function run() {
   pasteboard.clearContents
   pasteboard.setStringForType($(payload.plain), $.NSPasteboardTypeString)
   pasteboard.setStringForType($(payload.html), $.NSPasteboardTypeHTML)
-  if (payload.slackTexty) pasteboard.setStringForType($(payload.slackTexty), "slack/texty")
+  pasteboard.setDataForType($.NSData.alloc.initWithBase64EncodedStringOptions($(payload.custom), 0), "org.chromium.web-custom-data")
 }`
     const osascript = execFileAsync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script])
     // If osascript exits before reading, the write raises EPIPE on the stream, not on the awaited promise.
     osascript.child.stdin?.on("error", () => {})
-    osascript.child.stdin?.end(JSON.stringify({ plain, html, slackTexty }))
+    osascript.child.stdin?.end(JSON.stringify({ plain, html, custom: chromiumCustomData({ "slack/texty": slackTexty }) }))
     await osascript
     return true
   } catch {
@@ -199,7 +201,7 @@ function PullRequestRow(props: {
   open: string | RGBA
   success: string | RGBA
   error: string | RGBA
-  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
+  copy: (plain: string, html: string, slackTexty: string) => Promise<boolean>
 }) {
   const [hovered, setHovered] = createSignal(false)
   const [width, setWidth] = createSignal(1)
@@ -264,7 +266,7 @@ function PullRequestRow(props: {
         flexDirection="row"
         marginLeft={2}
         minWidth={0}
-        onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr))}
+        onMouseUp={() => props.copy(slackPullRequest(props.pr), slackPullRequestHtml(props.pr), slackPullRequestTexty(props.pr))}
       >
         <box flexShrink={1} minWidth={0} overflow="hidden">
           <text fg={subdued()} wrapMode="none">
@@ -443,7 +445,7 @@ function PullRequests(props: {
   open: string | RGBA
   success: string | RGBA
   error: string | RGBA
-  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
+  copy: (plain: string, html: string, slackTexty: string) => Promise<boolean>
   /** opencode 2 only: the header opens the panel instead of folding the section. */
   onHeaderClick?: () => void
 }) {
@@ -582,7 +584,7 @@ function openInBrowser(url: string): void {
 function PullRequestPanel(props: {
   context: Context
   panel: PanelInput
-  copy: (plain: string, html: string, slackTexty?: string) => Promise<boolean>
+  copy: (plain: string, html: string, slackTexty: string) => Promise<boolean>
 }) {
   const theme = props.context.theme
   const cache = getSessionCache(props.panel.sessionID)
@@ -597,7 +599,7 @@ function PullRequestPanel(props: {
   }
   const copySelected = () => {
     const pr = selected()
-    if (pr) void props.copy(slackPullRequest(pr), slackPullRequestHtml(pr))
+    if (pr) void props.copy(slackPullRequest(pr), slackPullRequestHtml(pr), slackPullRequestTexty(pr))
   }
   const copyActive = () => {
     if (active().length > 0) void props.copy(slackPullRequests(active()), slackPullRequestsHtml(active()), slackPullRequestsTexty(active()))
@@ -780,8 +782,8 @@ function setup(context: Context) {
   return () => cleanups.forEach((cleanup) => cleanup())
 }
 
-async function copyWithToast(context: Context, plain: string, html: string, slackTexty?: string): Promise<boolean> {
-  const copied = await copyRichText(plain, html, (text) => context.renderer.copyToClipboardOSC52(text), slackTexty)
+async function copyWithToast(context: Context, plain: string, html: string, slackTexty: string): Promise<boolean> {
+  const copied = await copyRichText(plain, html, slackTexty, (text) => context.renderer.copyToClipboardOSC52(text))
   context.ui.toast.show({
     message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
     variant: copied ? "success" : "error",
@@ -809,7 +811,7 @@ const tui: TuiPlugin = async (api) => {
           success={api.theme.current.success}
           error={api.theme.current.error}
           copy={async (plain, html, slackTexty) => {
-            const copied = await copyRichText(plain, html, (text) => api.renderer.copyToClipboardOSC52(text), slackTexty)
+            const copied = await copyRichText(plain, html, slackTexty, (text) => api.renderer.copyToClipboardOSC52(text))
             api.ui.toast({
               message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
               variant: copied ? "success" : "error",
