@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, descendantPullRequests, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, chromiumCustomData, slackPullRequest, slackPullRequestHtml, slackPullRequestTexty, slackPullRequests, slackPullRequestsHtml, slackPullRequestsTexty, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, descendantPullRequests, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, chromiumCustomData, pullRequestsClipboard, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -340,32 +340,35 @@ test("formats a PR for Slack", () => {
     title: "lower the cursor", state: "MERGED", isDraft: false, reviewDecision: "APPROVED", unresolvedThreads: 0, checks: "passing",
     createdAt: "2026-09-04T10:00:00Z", mergedAt: "2026-09-04T11:00:00Z", additions: 4, deletions: 4,
   }
-  assert.equal(slackPullRequest(pr), ":pr: **vvo/opencode-plugins** · [lower the cursor (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4")
-  assert.equal(
-    slackPullRequest({ ...pr, title: "[docs] a \\ b" }),
-    ":pr: **vvo/opencode-plugins** · [\\[docs\\] a \\\\ b (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4",
-  )
-  assert.equal(
-    slackPullRequestHtml(pr),
-    `<meta charset='utf-8'><html><head></head><body>:pr: <b>vvo/opencode-plugins</b> · <a href="https://github.com/vvo/opencode-plugins/pull/22">lower the cursor (#22)</a> +4/-4</body></html>`,
-  )
-  assert.equal(slackPullRequests([pr]), slackPullRequest(pr))
-  assert.equal(slackPullRequests([pr, pr]), `- ${slackPullRequest(pr)}\n- ${slackPullRequest(pr)}`)
-  assert.match(slackPullRequestsHtml([pr, pr]), /<ul><li>/)
-  assert.deepEqual(JSON.parse(slackPullRequestTexty(pr)).ops, [
+  const ops = [
     { insert: { slackemoji: { text: ":pr:" } } },
     { insert: " " },
     { attributes: { bold: true }, insert: "vvo/opencode-plugins" },
     { insert: " · " },
     { attributes: { link: "https://github.com/vvo/opencode-plugins/pull/22" }, insert: "lower the cursor (#22)" },
     { insert: " +4/-4" },
-  ])
-  assert.equal(slackPullRequestsTexty([pr]), slackPullRequestTexty(pr))
-  assert.deepEqual(JSON.parse(slackPullRequestsTexty([pr, pr])).ops.at(-1), { attributes: { list: "bullet" }, insert: "\n" })
+  ]
+  const line = ":pr: **vvo/opencode-plugins** · [lower the cursor (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4"
+  const html = `:pr: <b>vvo/opencode-plugins</b> · <a href="https://github.com/vvo/opencode-plugins/pull/22">lower the cursor (#22)</a> +4/-4`
+  assert.deepEqual(pullRequestsClipboard([pr]), {
+    plain: line,
+    html: `<meta charset='utf-8'>${html}`,
+    chromium: chromiumCustomData("slack/texty", JSON.stringify({ ops })),
+  })
+  const bullet = { attributes: { list: "bullet" }, insert: "\n" }
+  assert.deepEqual(pullRequestsClipboard([pr, pr]), {
+    plain: `- ${line}\n- ${line}`,
+    html: `<meta charset='utf-8'><ul><li>${html}</li><li>${html}</li></ul>`,
+    chromium: chromiumCustomData("slack/texty", JSON.stringify({ ops: [...ops, bullet, ...ops, bullet] })),
+  })
+  assert.equal(
+    pullRequestsClipboard([{ ...pr, title: "[docs] a \\ b" }]).plain,
+    ":pr: **vvo/opencode-plugins** · [\\[docs\\] a \\\\ b (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4",
+  )
 })
 
-test("encodes clipboard types as a Chromium pickle", () => {
-  const pickle = Buffer.from(chromiumCustomData({ "slack/texty": "é🚀" }), "base64")
+test("encodes a clipboard type as a Chromium pickle", () => {
+  const pickle = Buffer.from(chromiumCustomData("slack/texty", "é🚀"), "base64")
   const key = Buffer.from("slack/texty", "utf16le")
   const value = Buffer.from("é🚀", "utf16le")
   const expected = Buffer.concat([
