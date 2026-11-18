@@ -1,5 +1,11 @@
 # opencode-find-sessions
 
+## 0.1.1
+
+### Patch Changes
+
+- 4946b25: Sessions an automation started and tagged with `factory` in their metadata, like a review bot's runs, no longer show up in search.
+
 ## 0.1.0
 
 ### Minor Changes
