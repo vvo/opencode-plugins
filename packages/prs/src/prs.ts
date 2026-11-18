@@ -317,6 +317,9 @@ export function chromiumCustomData(type: string, value: string): string {
   return Buffer.concat([uint32(payload.length), payload]).toString("base64")
 }
 
+/** Redirects to github.com, but answers Slack's unfurler with an empty page so the paste gets no preview. */
+export const NO_PREVIEW_ORIGIN = "https://gh-nopreview.vercel.app"
+
 /**
  * Slack pastes `slack/texty`, its own format. Without it, Slack reads the plain text as Markdown and skips the HTML,
  * so the plain text is Markdown too. Other editors take the HTML.
@@ -335,7 +338,7 @@ export function pullRequestsClipboard(prs: PullRequest[]): { plain: string; html
         { insert: " " },
         { attributes: { bold: true }, insert: repo },
         { insert: " · " },
-        { attributes: { link: pr.url }, insert: title },
+        { attributes: { link: `${NO_PREVIEW_ORIGIN}${new URL(pr.url).pathname}` }, insert: title },
         { insert: diff },
         ...(list ? [{ attributes: { list: "bullet" }, insert: "\n" }] : []),
       ],

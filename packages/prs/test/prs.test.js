@@ -345,7 +345,7 @@ test("formats a PR for Slack", () => {
     { insert: " " },
     { attributes: { bold: true }, insert: "vvo/opencode-plugins" },
     { insert: " · " },
-    { attributes: { link: "https://github.com/vvo/opencode-plugins/pull/22" }, insert: "lower the cursor (#22)" },
+    { attributes: { link: "https://gh-nopreview.vercel.app/vvo/opencode-plugins/pull/22" }, insert: "lower the cursor (#22)" },
     { insert: " +4/-4" },
   ]
   const line = ":pr: **vvo/opencode-plugins** · [lower the cursor (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4"

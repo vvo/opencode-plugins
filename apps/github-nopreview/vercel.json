@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "missing": [{ "type": "header", "key": "user-agent", "value": "(?i).*(slackbot|slack-imgproxy).*" }],
+      "destination": "https://github.com/:path*",
+      "permanent": false
+    }
+  ],
+  "rewrites": [{ "source": "/:path*", "destination": "/empty.html" }]
+}
