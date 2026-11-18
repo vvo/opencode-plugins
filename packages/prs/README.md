@@ -32,6 +32,12 @@ OpenCode 1, in `~/.config/opencode/tui.json`:
 
 Then restart OpenCode. The plugin requires an installed and authenticated [GitHub CLI](https://cli.github.com/).
 
+## Slack previews
+
+Copied PRs paste into Slack without a link preview or GitHub card. The Slack link goes through `gh-nopreview.vercel.app`, which redirects browsers to the same path on github.com and gives Slack's link fetcher an empty page. It keeps no state: the path is the GitHub path. The Markdown and HTML copies still link to github.com directly. The redirect is a single `vercel.json` in [`apps/github-nopreview`](../../apps/github-nopreview/vercel.json).
+
+To keep Slack's previews, set `slackPreviews` in the plugin options, for example `["opencode-prs", { "slackPreviews": true }]`.
+
 ## How it works
 
 The plugin finds successful `gh pr create` calls made by the session, plus REST fallbacks that POST to `gh api repos/<owner>/<repo>/pulls`. Pull requests opened by subagents count too, at any depth: every refresh tick lists the session's child sessions, and only re-reads the messages of a session whose update time changed. It fetches every pull request of a session in one GraphQL request through `gh`, and falls back to the REST API per pull request when GraphQL fails, for example when its rate limit is exhausted. Closed pull requests are hidden, while merged pull requests remain visible behind the fold. The sidebar shows up to ten pull requests, ordered by open, draft, then merged, with the newest first in each group; merged ones only take the rows the active ones leave free.

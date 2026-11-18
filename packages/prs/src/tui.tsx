@@ -49,6 +49,8 @@ import {
 } from "./prs.js"
 
 const execFileAsync = promisify(execFile)
+
+type Options = { slackPreviews?: unknown }
 const MAX_HISTORY_PAGES = 50
 const MAX_VISIBLE_PRS = 10
 const MARQUEE_DELAY_MS = 500
@@ -134,8 +136,8 @@ function fade(color: string | RGBA, opacity: number): string | RGBA {
   return `#${[r, g, b, Math.round(opacity * 255)].map((value) => value.toString(16).padStart(2, "0")).join("")}`
 }
 
-async function copyPullRequests(prs: PullRequest[], fallback: (text: string) => boolean): Promise<boolean> {
-  const clipboard = pullRequestsClipboard(prs)
+async function copyPullRequests(prs: PullRequest[], options: Options, fallback: (text: string) => boolean): Promise<boolean> {
+  const clipboard = pullRequestsClipboard(prs, { slackPreviews: options.slackPreviews === true })
   if (process.platform !== "darwin") return fallback(clipboard.plain)
   try {
     // Payload goes through stdin: osascript parses a leading "- " as an option and dies on argv over about 1 KB.
@@ -844,7 +846,7 @@ function setup(context: Context) {
 }
 
 async function copyWithToast(context: Context, prs: PullRequest[]): Promise<boolean> {
-  const copied = await copyPullRequests(prs, (text) => context.renderer.copyToClipboardOSC52(text))
+  const copied = await copyPullRequests(prs, context.options, (text) => context.renderer.copyToClipboardOSC52(text))
   context.ui.toast.show({
     message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
     variant: copied ? "success" : "error",
@@ -852,7 +854,7 @@ async function copyWithToast(context: Context, prs: PullRequest[]): Promise<bool
   return copied
 }
 
-const tui: TuiPlugin = async (api) => {
+const tui: TuiPlugin = async (api, options) => {
   if (typeof api.slots?.register !== "function") return
   createNotesDir()
   const windowFocus = terminalFocus(api.renderer)
@@ -873,7 +875,7 @@ const tui: TuiPlugin = async (api) => {
           success={api.theme.current.success}
           error={api.theme.current.error}
           copy={async (prs) => {
-            const copied = await copyPullRequests(prs, (text) => api.renderer.copyToClipboardOSC52(text))
+            const copied = await copyPullRequests(prs, options ?? {}, (text) => api.renderer.copyToClipboardOSC52(text))
             api.ui.toast({
               message: copied ? "Copied to clipboard" : "Could not copy to clipboard",
               variant: copied ? "success" : "error",

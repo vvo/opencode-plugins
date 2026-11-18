@@ -345,7 +345,7 @@ test("formats a PR for Slack", () => {
     { insert: " " },
     { attributes: { bold: true }, insert: "vvo/opencode-plugins" },
     { insert: " · " },
-    { attributes: { link: "https://github.com/vvo/opencode-plugins/pull/22" }, insert: "lower the cursor (#22)" },
+    { attributes: { link: "https://gh-nopreview.vercel.app/vvo/opencode-plugins/pull/22" }, insert: "lower the cursor (#22)" },
     { insert: " +4/-4" },
   ]
   const line = ":pr: **vvo/opencode-plugins** · [lower the cursor (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4"
@@ -364,6 +364,11 @@ test("formats a PR for Slack", () => {
   assert.equal(
     pullRequestsClipboard([{ ...pr, title: "[docs] a \\ b" }]).plain,
     ":pr: **vvo/opencode-plugins** · [\\[docs\\] a \\\\ b (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4",
+  )
+  const previewOps = ops.map((op) => op.attributes?.link ? { ...op, attributes: { link: pr.url } } : op)
+  assert.equal(
+    pullRequestsClipboard([pr], { slackPreviews: true }).chromium,
+    chromiumCustomData("slack/texty", JSON.stringify({ ops: previewOps })),
   )
 })
 
