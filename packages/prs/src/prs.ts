@@ -436,6 +436,58 @@ export function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`
 }
 
+export const NOTE_MAX_AGE_MS = 15 * 60_000
+export const NOTE_MAX_LENGTH = 80
+export const NOTE_MAX_FILES = 8
+export const NOTE_MAX_BYTES = 256 * 1024
+const NOTE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/
+const ANSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
+
+// Other tools write this text: no escape sequence or newline may reach the terminal.
+export function cleanNote(value: string): string {
+  const text = value.replace(ANSI_SEQUENCE, "").replace(CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim()
+  return truncate(text, NOTE_MAX_LENGTH)
+}
+
+// A file its tool stopped updating is ignored: a stale note would lie.
+export function parseNotes(text: string, now: number): Map<string, string> {
+  const notes = new Map<string, string>()
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return notes
+  }
+  if (!data || typeof data !== "object") return notes
+  const { updated, notes: entries } = data as { updated?: unknown; notes?: unknown }
+  if (typeof updated !== "number" || !(Math.abs(now - updated) <= NOTE_MAX_AGE_MS)) return notes
+  if (!entries || typeof entries !== "object") return notes
+  for (const [url, value] of Object.entries(entries)) {
+    if (!NOTE_URL.test(url) || typeof value !== "string") continue
+    const note = cleanNote(value)
+    if (note) notes.set(url, note)
+  }
+  return notes
+}
+
+export function mergeNotes(files: Iterable<ReadonlyMap<string, string>>): Map<string, string> {
+  const merged = new Map<string, string>()
+  for (const file of files) {
+    for (const [url, note] of file) {
+      const existing = merged.get(url)
+      merged.set(url, existing ? `${existing} · ${note}` : note)
+    }
+  }
+  return merged
+}
+
+export function sameNotes(left: ReadonlyMap<string, string>, right: ReadonlyMap<string, string>): boolean {
+  if (left.size !== right.size) return false
+  for (const [url, note] of left) if (right.get(url) !== note) return false
+  return true
+}
+
 export function marquee(value: string, width: number, offset: number): string {
   if (width <= 0) return ""
   if (value.length <= width) return value
