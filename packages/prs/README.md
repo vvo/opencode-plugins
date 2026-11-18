@@ -34,9 +34,7 @@ Then restart OpenCode. The plugin requires an installed and authenticated [GitHu
 
 ## Slack previews
 
-Copied PRs paste into Slack without a link preview or GitHub card. The Slack link goes through `gh-nopreview.vercel.app`, which redirects browsers to the same path on github.com and gives Slack's link fetcher an empty page. It keeps no state: the path is the GitHub path. The Markdown and HTML copies still link to github.com directly. The redirect is a single `vercel.json` in [`apps/github-nopreview`](../../apps/github-nopreview/vercel.json).
-
-To keep Slack's previews, set `slackPreviews` in the plugin options, for example `["opencode-prs", { "slackPreviews": true }]`.
+Copied PRs paste into Slack without a link preview or GitHub card. The Slack link goes through `gh-nopreview.vercel.app`, a stateless redirect to the same path on github.com that gives Slack's link fetcher an empty page. The Markdown and HTML copies link to github.com directly. The redirect is one [`vercel.json`](../../apps/github-nopreview/vercel.json).
 
 ## How it works
 

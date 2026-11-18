@@ -365,11 +365,6 @@ test("formats a PR for Slack", () => {
     pullRequestsClipboard([{ ...pr, title: "[docs] a \\ b" }]).plain,
     ":pr: **vvo/opencode-plugins** · [\\[docs\\] a \\\\ b (#22)](https://github.com/vvo/opencode-plugins/pull/22) +4/-4",
   )
-  const previewOps = ops.map((op) => op.attributes?.link ? { ...op, attributes: { link: pr.url } } : op)
-  assert.equal(
-    pullRequestsClipboard([pr], { slackPreviews: true }).chromium,
-    chromiumCustomData("slack/texty", JSON.stringify({ ops: previewOps })),
-  )
 })
 
 test("encodes a clipboard type as a Chromium pickle", () => {

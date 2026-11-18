@@ -3,11 +3,10 @@
   "redirects": [
     {
       "source": "/:path*",
-      "missing": [{ "type": "header", "key": "user-agent", "value": "(?i).*slack.*" }],
+      "missing": [{ "type": "header", "key": "user-agent", "value": "(?i).*(slackbot|slack-imgproxy).*" }],
       "destination": "https://github.com/:path*",
       "permanent": false
     }
   ],
-  "rewrites": [{ "source": "/:path*", "destination": "/empty.html" }],
-  "headers": [{ "source": "/:path*", "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }] }]
+  "rewrites": [{ "source": "/:path*", "destination": "/empty.html" }]
 }
