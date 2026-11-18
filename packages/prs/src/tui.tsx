@@ -1,5 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 import { execFile } from "node:child_process"
+import { mkdir, readdir, readFile, stat } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { promisify } from "node:util"
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type Accessor } from "solid-js"
 import type { RGBA } from "@opentui/core"
@@ -14,9 +17,14 @@ import {
   extractCreatedPullRequests,
   isSettled,
   refreshInterval,
+  sameNotes,
   fitPullRequestLabel,
   groupPullRequests,
   marquee,
+  mergeNotes,
+  NOTE_MAX_BYTES,
+  NOTE_MAX_FILES,
+  parseNotes,
   predatesSession,
   pullRequestChecksIndicator,
   pullRequestCommentsLabel,
@@ -27,6 +35,7 @@ import {
   pullRequestsQuery,
   pullRequestsClipboard,
   sortPullRequests,
+  truncate,
   uniquePullRequests,
   type CheckSuiteRuns,
   type CheckSummary,
@@ -79,6 +88,45 @@ type SessionCache = {
 }
 
 const sessionCache = new Map<string, SessionCache>()
+
+const NOTES_DIR = join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "opencode-prs", "notes")
+const [notes, setNotes] = createSignal<ReadonlyMap<string, string>>(new Map())
+let notesPromise: Promise<void> | undefined
+
+// Other tools check that this folder exists to know the plugin is installed.
+function createNotesDir(): void {
+  void mkdir(NOTES_DIR, { recursive: true, mode: 0o700 }).catch(() => undefined)
+}
+
+function loadNotes(): Promise<void> {
+  return notesPromise ??= readNotes()
+    .catch(() => new Map<string, string>())
+    .then((next) => {
+      if (!sameNotes(notes(), next)) setNotes(next)
+    })
+    .finally(() => {
+      notesPromise = undefined
+    })
+}
+
+async function readNotes(): Promise<Map<string, string>> {
+  const names = (await readdir(NOTES_DIR).catch(() => [] as string[]))
+    .filter((name) => name.endsWith(".json"))
+    .sort()
+    .slice(0, NOTE_MAX_FILES)
+  const now = Date.now()
+  const files = await Promise.all(names.map(async (name) => {
+    try {
+      const path = join(NOTES_DIR, name)
+      const info = await stat(path)
+      if (!info.isFile() || info.size > NOTE_MAX_BYTES) return new Map<string, string>()
+      return parseNotes(await readFile(path, "utf8"), now)
+    } catch {
+      return new Map<string, string>()
+    }
+  }))
+  return mergeNotes(files)
+}
 
 function fade(color: string | RGBA, opacity: number): string | RGBA {
   if (typeof color === "string") return color
@@ -239,6 +287,7 @@ function PullRequestRow(props: {
   const subdued = () => merged() ? fade(props.subdued, MERGED_OPACITY) : props.subdued
   const titleColor = () => merged() ? subdued() : props.link
   const statusColor = () => merged() ? subdued() : props.open
+  const note = () => merged() ? undefined : notes().get(props.pr.url)
   const checksColor = (indicator: ChecksIndicator) => {
     if (indicator === "✓") return props.success
     if (indicator === "×") return props.error
@@ -276,6 +325,13 @@ function PullRequestRow(props: {
           )}
         </Show>
       </box>
+      <Show when={note()} keyed>
+        {(text) => (
+          <box marginLeft={2} minWidth={0} overflow="hidden">
+            <text fg={props.subdued} wrapMode="none">{truncate(text, width())}</text>
+          </box>
+        )}
+      </Show>
     </box>
   )
 }
@@ -507,6 +563,7 @@ function PullRequests(props: {
     cache.descendants = await descendantsPromise
   }
   const revalidate = async () => {
+    void loadNotes()
     await props.sync?.().catch(() => undefined)
     const historyPromise = cache.historyPromise ??= props.history().catch(() => cache.history).finally(() => {
       cache.historyPromise = undefined
@@ -526,6 +583,7 @@ function PullRequests(props: {
     // Ticks at the fast rate: picks up PRs a subagent just created, and refetches once the PRs' own interval has passed.
     const interval = setInterval(() => {
       if (!focused) return
+      void loadNotes()
       void loadDescendants().then(() => refresh(Date.now() - cache.fetchedAt >= refreshInterval(cache.prs)))
     }, ACTIVE_REFRESH_MS)
     onCleanup(() => {
@@ -669,6 +727,7 @@ function PanelRow(props: {
     const label = pullRequestCommentsLabel(props.pr)
     return label ? ` · ${label}` : ""
   }
+  const note = () => merged() ? undefined : notes().get(props.pr.url)
   const marker = () => {
     if (!props.selected()) return " "
     return props.focused() ? "▶" : "▷"
@@ -695,6 +754,13 @@ function PanelRow(props: {
           {` · +${props.pr.additions}/-${props.pr.deletions}`}
         </text>
       </box>
+      <Show when={note()} keyed>
+        {(text) => (
+          <box marginLeft={2} minWidth={0}>
+            <text fg={subdued()} wrapMode="word">{text}</text>
+          </box>
+        )}
+      </Show>
       <Show when={props.pr.state === "OPEN" && props.pr.checkSummary.total > 0}>
         <box flexDirection="column" marginLeft={2} minWidth={0}>
           <For each={props.pr.checkSummary.failing}>{(name) => (
@@ -712,6 +778,7 @@ function PanelRow(props: {
 
 function setup(context: Context) {
   if (typeof context.ui?.slot !== "function") return
+  createNotesDir()
   const cleanups: (() => void)[] = []
   // Panels and keymap layers arrived together in opencode 2.0.12; older hosts keep the sidebar only.
   const panels = typeof context.ui.panel?.open === "function" && typeof context.keymap?.layer === "function"
@@ -787,6 +854,7 @@ async function copyWithToast(context: Context, prs: PullRequest[]): Promise<bool
 
 const tui: TuiPlugin = async (api) => {
   if (typeof api.slots?.register !== "function") return
+  createNotesDir()
   const windowFocus = terminalFocus(api.renderer)
   api.slots.register({
     order: 240,

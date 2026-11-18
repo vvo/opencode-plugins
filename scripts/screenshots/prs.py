@@ -16,7 +16,9 @@ How it works:
    checks passing, approved but blocked, approved + pending checks, and merged
    (folded behind the `▸ 1 merged` line).
 2. Starts `opencode --session ...` inside a detached tmux pane with a private
-   XDG_CONFIG_HOME so the theme mode and plugin list do not touch ~/.config.
+   XDG_CONFIG_HOME so the theme mode and plugin list do not touch ~/.config,
+   and a private XDG_STATE_HOME holding a fake notes file (NOTES), so the
+   note line shows and the real notes folder is never read.
 3. Captures the pane with `tmux capture-pane -e` (keeps the SGR colors), then
    injects SGR mouse-motion events at the first title so the real hover
    marquee runs, sampling one capture per marquee step.
@@ -28,7 +30,7 @@ How it works:
 6. Types `/prs` to open the panel, moves the selection with `j` and `k`, captures
    the panel after each key and assembles a second GIF from it.
 
-Outputs assets/prs-<mode>.png, assets/prs-hover-<mode>-v7.gif and
+Outputs assets/prs-<mode>.png, assets/prs-hover-<mode>-<GIF_SUFFIX>.gif and
 assets/prs-panel-<mode>-<PANEL_SUFFIX>.gif.
 Bump the gif suffix (and the README references) when the animation changes:
 GitHub caches by filename.
@@ -40,8 +42,8 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ASSETS = os.path.join(ROOT, "assets")
 PLUGIN = os.path.join(ROOT, "packages/prs/dist")
 SESSION = "ses_screenshots0000000000prs"
-GIF_SUFFIX = "v7"
-PANEL_SUFFIX = "v1"
+GIF_SUFFIX = "v8"
+PANEL_SUFFIX = "v2"
 PANEL_KEYS = ["j", "j", "j", "k", "k", "k"]
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
@@ -51,11 +53,12 @@ PR_URLS = [  # order of creation, sidebar sorts them itself
     "https://github.com/vvo/tzdb/pull/212",
     "https://github.com/vvo/opencode-plugins/pull/37",
 ]
+NOTES = {"https://github.com/vvo/tooling/pull/39": "Theo is reviewing"}
 FIRST_TITLE = "[opencode-prs] Show"   # top row after sorting, gets hovered
 LAST_META = "▸ 1 merged"              # bottom row, proves everything rendered
 
 # Render geometry (matches the previous assets)
-COLS, ROWS = 38, 8
+COLS, ROWS = 38, 9
 CELL_W, CELL_H = 29, 59
 PAD_X, PAD_Y = 74, 73
 FONT_PX = 46
@@ -122,10 +125,18 @@ def write_launcher(work, mode):
         "tabs": {"enabled": False},
         "attention": {"notifications": False, "sound": False},
     }, open(os.path.join(xdg, "cli.json"), "w"), indent=2)
+    notes = os.path.join(work, "state", "opencode-prs", "notes")
+    os.makedirs(notes, exist_ok=True)
+    # OpenCode finds its background service through its own state folder.
+    real_state = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "opencode")
+    if not os.path.lexists(os.path.join(work, "state", "opencode")):
+        os.symlink(real_state, os.path.join(work, "state", "opencode"))
+    json.dump({"updated": int(time.time() * 1000), "notes": NOTES}, open(os.path.join(notes, "screenshots.json"), "w"))
     launcher = os.path.join(work, f"launch-{mode}.sh")
     open(launcher, "w").write(f"""#!/bin/sh
 export PATH="{HERE}:$PATH"
 export XDG_CONFIG_HOME="{os.path.join(work, 'xdg')}"
+export XDG_STATE_HOME="{os.path.join(work, 'state')}"
 cd "{work}"
 exec opencode --session {SESSION}
 """)

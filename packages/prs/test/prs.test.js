@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, checkSuiteIdsNeedingRuns, checkSuiteRunsQuery, descendantPullRequests, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, chromiumCustomData, pullRequestsClipboard, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
+import { ACTIVE_REFRESH_MS, IDLE_REFRESH_MS, NOTE_MAX_AGE_MS, checkSuiteIdsNeedingRuns, cleanNote, mergeNotes, parseNotes, sameNotes, checkSuiteRunsQuery, descendantPullRequests, extractCreatedPullRequests, isSettled, refreshInterval, extractPullRequests, fitPullRequestLabel, groupPullRequests, marquee, predatesSession, pullRequestChecksIndicator, pullRequestCommentsLabel, pullRequestFromNode, pullRequestFromRest, pullRequestLabel, pullRequestStatus, pullRequestStatusLabel, pullRequestsQuery, checksState, chromiumCustomData, pullRequestsClipboard, sortPullRequests, summarizeChecks, truncate, uniquePullRequests } from "../dist/prs.js"
 
 test("extracts and normalizes GitHub pull request links", () => {
   assert.deepEqual(extractPullRequests("See https://github.com/vvo/opencode-plugins/pull/12/files"), [{
@@ -376,4 +376,34 @@ test("encodes a clipboard type as a Chromium pickle", () => {
     Buffer.from([3, 0, 0, 0]), value, Buffer.alloc(2),
   ])
   assert.deepEqual(pickle, expected)
+})
+
+test("reads notes from another tool's file", () => {
+  const now = 1_795_006_434_164
+  const url = "https://github.com/acme/api/pull/7"
+  const file = (notes, updated = now) => JSON.stringify({ updated, notes })
+  assert.deepEqual(parseNotes(file({ [url]: "Theo is reviewing" }), now), new Map([[url, "Theo is reviewing"]]))
+  assert.equal(parseNotes(file({ [url]: "Theo is reviewing" }, now - NOTE_MAX_AGE_MS - 1), now).size, 0)
+  assert.equal(parseNotes(file({ [url]: "Theo is reviewing" }, now - NOTE_MAX_AGE_MS), now).size, 1)
+  assert.equal(parseNotes("{ not json", now).size, 0)
+  assert.equal(parseNotes("null", now).size, 0)
+  assert.equal(parseNotes(JSON.stringify({ notes: { [url]: "no date" } }), now).size, 0)
+  assert.deepEqual(parseNotes(file({ [url]: 42, "https://github.com/acme/api/pull/8": { text: "x" }, "https://github.com/acme/api/pull/9": "ok" }), now), new Map([["https://github.com/acme/api/pull/9", "ok"]]))
+  assert.equal(parseNotes(file({ [`${url}/files`]: "wrong form", [url]: "   " }), now).size, 0)
+})
+
+test("cleans a note before it reaches the terminal", () => {
+  assert.equal(cleanNote("\u001b[31mTheo\u001b[0m is\nreviewing\u0007  now "), "Theo is reviewing now")
+  const long = cleanNote("a".repeat(100))
+  assert.equal(long.length, 80)
+  assert.equal(long, `${"a".repeat(79)}…`)
+})
+
+test("joins two tools' notes on one PR in file order", () => {
+  const url = "https://github.com/acme/api/pull/7"
+  const other = "https://github.com/acme/api/pull/8"
+  const merged = mergeNotes([new Map([[url, "Theo is reviewing"]]), new Map([[url, "checks rerun"], [other, "queued"]])])
+  assert.deepEqual(merged, new Map([[url, "Theo is reviewing · checks rerun"], [other, "queued"]]))
+  assert.equal(sameNotes(merged, new Map(merged)), true)
+  assert.equal(sameNotes(merged, new Map([[url, "Theo is reviewing"]])), false)
 })
